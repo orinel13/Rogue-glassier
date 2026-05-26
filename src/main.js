@@ -7,7 +7,9 @@ const ctx = canvas.getContext("2d");
 const hud = {
   levelIndex: document.querySelector("#levelIndex"),
   levelName: document.querySelector("#levelName"),
+  difficulty: document.querySelector("#difficulty"),
   trackType: document.querySelector("#trackType"),
+  modifiers: document.querySelector("#modifiers"),
   launches: document.querySelector("#launches"),
   totalLaunches: document.querySelector("#totalLaunches"),
   activeBalls: document.querySelector("#activeBalls"),
@@ -41,68 +43,139 @@ const REWARD_POOL = [
   {
     id: "temperedCore",
     name: "Tempered Core",
+    tier: "common",
     description: "+15% base power until run end.",
   },
   {
     id: "quickLaunch",
     name: "Quick Launch",
+    tier: "common",
     description: "+8% base speed until run end.",
   },
   {
     id: "extraMarble",
     name: "Extra Marble",
+    tier: "rare",
     description: "+1 start ball until run end.",
   },
   {
     id: "glassTax",
     name: "Glass Tax",
+    tier: "rare",
     description: "+20% shards from wave rewards.",
   },
   {
     id: "multiplierPolish",
     name: "Multiplier Polish",
+    tier: "rare",
     description: "First multiplier each level gets +1 value.",
   },
   {
     id: "deepCrack",
     name: "Deep Crack",
+    tier: "common",
     description: "First hit each level deals +50% damage.",
   },
   {
     id: "coreBruiser",
     name: "Core Bruiser",
+    tier: "rare",
     description: "+25% damage to core.",
   },
   {
     id: "cleanBreak",
     name: "Clean Break",
+    tier: "common",
     description: "+5 shards for each 10th broken segment in a level.",
   },
 ];
 
-const LEVELS = [
+const ACT_ROOMS = 6;
+
+const DIFFICULTY = {
+  safe: { label: "Safe", glassHpScale: 0.85, coreHpScale: 0.9, shardMultiplier: 0.85 },
+  normal: { label: "Normal", glassHpScale: 1, coreHpScale: 1, shardMultiplier: 1 },
+  risky: { label: "Risky", glassHpScale: 1.15, coreHpScale: 1.1, shardMultiplier: 1.25 },
+  elite: { label: "Elite", glassHpScale: 1.35, coreHpScale: 1.3, shardMultiplier: 1.6 },
+  boss: { label: "Boss", glassHpScale: 1.55, coreHpScale: 1.6, shardMultiplier: 2 },
+};
+
+const LEVEL_MODIFIERS = {
+  brittleGlass: {
+    id: "brittleGlass",
+    name: "Brittle Glass",
+    shortDescription: "Glass has less HP, but core has more HP.",
+  },
+  denseMiddle: {
+    id: "denseMiddle",
+    name: "Dense Middle",
+    shortDescription: "Middle glass is much tougher.",
+  },
+  armoredCore: {
+    id: "armoredCore",
+    name: "Armored Core",
+    shortDescription: "Core reduces small hits.",
+  },
+  multiplierRush: {
+    id: "multiplierRush",
+    name: "Multiplier Rush",
+    shortDescription: "More multiplier value, tougher glass.",
+  },
+  fragileBalls: {
+    id: "fragileBalls",
+    name: "Fragile Balls",
+    shortDescription: "Balls lose more power after breaking glass.",
+  },
+  richChamber: {
+    id: "richChamber",
+    name: "Rich Chamber",
+    shortDescription: "More shards, stronger glass.",
+  },
+  crackedStart: {
+    id: "crackedStart",
+    name: "Cracked Start",
+    shortDescription: "First quarter is cracked, center is stronger.",
+  },
+  glassRegen: {
+    id: "glassRegen",
+    name: "Glass Regen",
+    shortDescription: "Damaged glass repairs after each wave.",
+  },
+};
+
+const TUTORIAL_LEVEL = {
+  id: "glassSpiral",
+  name: "Glass Spiral",
+  trackType: "spiral",
+  difficulty: "normal",
+  modifiers: [],
+  turns: 3.65,
+  segments: 72,
+  coreHp: 165,
+  hpCurve: { start: 2, end: 18, exponent: 1.7 },
+  multipliers: [
+    { progress: 0.25, value: 2 },
+    { progress: 0.5, value: 3 },
+    { progress: 0.75, value: 1 },
+    { progress: 0.9, value: 5 },
+  ],
+  theme: {
+    accentColor: "#72eeff",
+    glassTint: "#98eeff",
+    backgroundGridStrength: 0.23,
+  },
+};
+
+const LEVEL_POOL = [
   {
-    name: "Glass Spiral",
-    trackType: "spiral",
-    turns: 3.65,
-    segments: 72,
-    coreHp: 165,
-    hpCurve: { start: 2, end: 18, exponent: 1.7 },
-    multipliers: [
-      { progress: 0.25, value: 2 },
-      { progress: 0.5, value: 3 },
-      { progress: 0.75, value: 1 },
-      { progress: 0.9, value: 5 },
-    ],
-    theme: {
-      accentColor: "#72eeff",
-      glassTint: "#98eeff",
-      backgroundGridStrength: 0.23,
-    },
+    ...TUTORIAL_LEVEL,
   },
   {
+    id: "serpentCut",
     name: "Serpent Cut",
     trackType: "snake",
+    difficulty: "normal",
+    modifiers: ["crackedStart"],
     segments: 86,
     coreHp: 150,
     hpCurve: { start: 2, end: 15, exponent: 1.35 },
@@ -119,8 +192,11 @@ const LEVELS = [
     },
   },
   {
+    id: "ringChamber",
     name: "Ring Chamber",
     trackType: "rings",
+    difficulty: "risky",
+    modifiers: ["denseMiddle"],
     segments: 78,
     coreHp: 185,
     hpCurve: { start: 3, end: 20, exponent: 1.45, midBoost: 7 },
@@ -137,8 +213,11 @@ const LEVELS = [
     },
   },
   {
+    id: "cloverTrap",
     name: "Clover Trap",
     trackType: "clover",
+    difficulty: "risky",
+    modifiers: ["fragileBalls"],
     segments: 90,
     coreHp: 305,
     hpCurve: { start: 3, end: 23, exponent: 1.45 },
@@ -155,16 +234,19 @@ const LEVELS = [
     },
   },
   {
+    id: "zigzagCoil",
     name: "Zigzag Coil",
     trackType: "zigzagCoil",
+    difficulty: "normal",
+    modifiers: ["brittleGlass"],
     segments: 92,
     coreHp: 260,
     hpCurve: { start: 4, end: 26, exponent: 1.5 },
     multipliers: [
-      { progress: 0.16, value: 2 },
-      { progress: 0.38, value: 3 },
-      { progress: 0.64, value: 2 },
-      { progress: 0.86, value: 5 },
+      { progress: 0.22, value: 2 },
+      { progress: 0.48, value: 3 },
+      { progress: 0.72, value: 1 },
+      { progress: 0.9, value: 5 },
     ],
     theme: {
       accentColor: "#9ee8ff",
@@ -173,32 +255,146 @@ const LEVELS = [
     },
   },
   {
-    name: "Broken Core",
+    id: "greedySpiral",
+    name: "Greedy Spiral",
+    trackType: "spiral",
+    difficulty: "risky",
+    modifiers: ["multiplierRush"],
+    turns: 3.2,
+    segments: 82,
+    coreHp: 225,
+    hpCurve: { start: 3, end: 24, exponent: 1.45 },
+    multipliers: [
+      { progress: 0.18, value: 2 },
+      { progress: 0.4, value: 3 },
+      { progress: 0.68, value: 5 },
+      { progress: 0.9, value: 5 },
+    ],
+    theme: {
+      accentColor: "#f2e989",
+      glassTint: "#cdeec8",
+      backgroundGridStrength: 0.2,
+    },
+  },
+  {
+    id: "richSerpent",
+    name: "Rich Serpent",
+    trackType: "snake",
+    difficulty: "risky",
+    modifiers: ["richChamber"],
+    segments: 92,
+    coreHp: 230,
+    hpCurve: { start: 3, end: 24, exponent: 1.42 },
+    multipliers: [
+      { progress: 0.25, value: 2 },
+      { progress: 0.5, value: 2 },
+      { progress: 0.76, value: 3 },
+      { progress: 0.91, value: 5 },
+    ],
+    theme: {
+      accentColor: "#88ffc4",
+      glassTint: "#9ef2d5",
+      backgroundGridStrength: 0.19,
+    },
+  },
+  {
+    id: "armoredRings",
+    name: "Armored Rings",
+    trackType: "rings",
+    difficulty: "elite",
+    modifiers: ["armoredCore", "denseMiddle"],
+    segments: 84,
+    coreHp: 260,
+    hpCurve: { start: 4, end: 28, exponent: 1.52, midBoost: 8 },
+    multipliers: [
+      { progress: 0.24, value: 2 },
+      { progress: 0.52, value: 3 },
+      { progress: 0.75, value: 1 },
+      { progress: 0.92, value: 6 },
+    ],
+    theme: {
+      accentColor: "#9fb9ff",
+      glassTint: "#c0d1ff",
+      backgroundGridStrength: 0.26,
+    },
+  },
+  {
+    id: "regrowthClover",
+    name: "Regrowth Clover",
+    trackType: "clover",
+    difficulty: "elite",
+    modifiers: ["glassRegen", "richChamber"],
+    segments: 88,
+    coreHp: 255,
+    hpCurve: { start: 4, end: 27, exponent: 1.5 },
+    multipliers: [
+      { progress: 0.2, value: 2 },
+      { progress: 0.46, value: 3 },
+      { progress: 0.72, value: 4 },
+      { progress: 0.9, value: 5 },
+    ],
+    theme: {
+      accentColor: "#ccff9c",
+      glassTint: "#b9f0bb",
+      backgroundGridStrength: 0.22,
+    },
+  },
+  {
+    id: "brokenPassage",
+    name: "Broken Passage",
     trackType: "brokenSpiral",
-    turns: 3.25,
-    segments: 68,
-    coreHp: 390,
-    hpCurve: { start: 6, end: 42, exponent: 1.6 },
+    difficulty: "normal",
+    modifiers: ["crackedStart"],
+    turns: 3.05,
+    segments: 76,
+    coreHp: 205,
+    hpCurve: { start: 3, end: 24, exponent: 1.48 },
     multipliers: [
       { progress: 0.25, value: 2 },
       { progress: 0.52, value: 3 },
-      { progress: 0.72, value: 1 },
-      { progress: 0.91, value: 6 },
+      { progress: 0.74, value: 1 },
+      { progress: 0.91, value: 5 },
     ],
     theme: {
-      accentColor: "#e8f8ff",
-      glassTint: "#d7f4ff",
-      backgroundGridStrength: 0.28,
+      accentColor: "#d9efff",
+      glassTint: "#caefff",
+      backgroundGridStrength: 0.25,
     },
   },
 ];
+
+const BOSS_LEVEL = {
+  id: "brokenCoreBoss",
+  name: "Broken Core",
+  trackType: "brokenSpiral",
+  difficulty: "boss",
+  modifiers: ["armoredCore", "denseMiddle"],
+  turns: 3.25,
+  segments: 70,
+  coreHp: 330,
+  hpCurve: { start: 6, end: 38, exponent: 1.6 },
+  multipliers: [
+    { progress: 0.25, value: 2 },
+    { progress: 0.52, value: 3 },
+    { progress: 0.72, value: 1 },
+    { progress: 0.91, value: 6 },
+  ],
+  theme: {
+    accentColor: "#e8f8ff",
+    glassTint: "#d7f4ff",
+    backgroundGridStrength: 0.28,
+  },
+};
 
 const audio = new AudioManager();
 
 const state = {
   phase: "idle",
-  levelIndex: 0,
-  level: LEVELS[0],
+  room: 1,
+  level: TUTORIAL_LEVEL,
+  previousLevelId: null,
+  nextChoices: [],
+  selectedNextLevel: null,
   track: [],
   segments: [],
   multipliers: [],
@@ -254,7 +450,12 @@ function init() {
 function handleSpace() {
   if (state.phase === "nextLevelReady") {
     audio.play("uiClick");
-    startLevel(state.levelIndex + 1);
+    startLevel(state.selectedNextLevel, state.room + 1);
+    return;
+  }
+
+  if (state.phase === "nextChamberChoice") {
+    audio.play("denied");
     return;
   }
 
@@ -275,24 +476,33 @@ function handleNumberKey(index, upgradeType) {
     return;
   }
 
+  if (state.phase === "nextChamberChoice") {
+    chooseNextChamber(index);
+    return;
+  }
+
   buyUpgrade(upgradeType);
 }
 
 function resetRun() {
-  state.levelIndex = 0;
+  state.room = 1;
   state.shards = 0;
   state.totalLaunches = 0;
   state.upgrades = { power: 0, speed: 0, balls: 0 };
   state.rewards = [];
   state.rewardChoices = [];
   state.selectedReward = null;
-  startLevel(0);
+  state.previousLevelId = null;
+  state.nextChoices = [];
+  state.selectedNextLevel = null;
+  startLevel(TUTORIAL_LEVEL, 1);
 }
 
-function startLevel(levelIndex) {
+function startLevel(levelTemplate, room) {
   state.phase = "idle";
-  state.levelIndex = levelIndex;
-  state.level = LEVELS[levelIndex];
+  state.room = room;
+  state.level = prepareLevel(levelTemplate, room);
+  state.previousLevelId = state.level.id;
   state.track = generateTrack(state.level);
   state.segments = generateGlassSegments(state.level);
   state.multipliers = createMultipliers(state.level);
@@ -306,6 +516,8 @@ function startLevel(levelIndex) {
   state.levelMultiplierPolishUsed = false;
   state.rewardChoices = [];
   state.selectedReward = null;
+  state.nextChoices = [];
+  state.selectedNextLevel = null;
   state.levelVictoryTimer = 0;
   state.transitionFade = 1;
   state.core = {
@@ -319,6 +531,38 @@ function startLevel(levelIndex) {
   state.screenShake = 0;
   addFloatingText(CENTER.x, 76, state.level.name, getTheme().accentColor, 1.15);
   updateHud();
+}
+
+function prepareLevel(template, room) {
+  const level = structuredClone(template);
+  level.room = room;
+  level.modifiers = level.modifiers || [];
+  level.difficulty = level.difficulty || "normal";
+  level.modifierDetails = level.modifiers.map((id) => LEVEL_MODIFIERS[id]).filter(Boolean);
+
+  const difficulty = DIFFICULTY[level.difficulty];
+  const roomIndex = Math.max(0, room - 1);
+  const bossScale = level.difficulty === "boss" ? 1.12 : 1;
+  level.glassHpScale = difficulty.glassHpScale * (1 + roomIndex * 0.08) * bossScale;
+  level.coreHpScale = difficulty.coreHpScale * (1 + roomIndex * 0.1) * bossScale;
+  level.shardMultiplier = difficulty.shardMultiplier;
+
+  if (hasLevelModifier(level, "brittleGlass")) {
+    level.glassHpScale *= 0.75;
+    level.coreHpScale *= 1.35;
+  }
+  if (hasLevelModifier(level, "multiplierRush")) level.glassHpScale *= 1.2;
+  if (hasLevelModifier(level, "richChamber")) level.glassHpScale *= 1.25;
+
+  level.coreHp = Math.max(1, Math.round(level.coreHp * level.coreHpScale));
+  level.multipliers = level.multipliers.map((multiplier) => ({
+    ...multiplier,
+    value:
+      hasLevelModifier(level, "multiplierRush") && multiplier.value >= 2
+        ? multiplier.value + 1
+        : multiplier.value,
+  }));
+  return level;
 }
 
 function generateTrack(level) {
@@ -514,7 +758,11 @@ function generateGlassSegments(level) {
     const curve = level.hpCurve;
     const baseHp = curve.start + (curve.end - curve.start) * mid ** curve.exponent;
     const boost = curve.midBoost ? Math.sin(Math.PI * mid) * curve.midBoost : 0;
-    const maxHp = Math.max(1, Math.round(baseHp + boost));
+    let hp = (baseHp + boost) * level.glassHpScale;
+    if (hasLevelModifier(level, "denseMiddle") && mid >= 0.35 && mid <= 0.7) hp *= 1.45;
+    if (hasLevelModifier(level, "crackedStart") && mid < 0.25) hp *= 0.5;
+    if (hasLevelModifier(level, "crackedStart") && mid > 0.75) hp *= 1.25;
+    const maxHp = Math.max(1, Math.round(hp));
 
     segments.push({
       id: i,
@@ -717,7 +965,7 @@ function handleGlassCollision(ball) {
         state.waveStats.cleanBreakBonus += 5;
         addFloatingText(hitPoint.x, hitPoint.y - 40, "+5 SHARDS", "#fff37a", 0.85);
       }
-      ball.power = Math.max(1, overflow);
+      ball.power = Math.max(1, hasLevelModifier(state.level, "fragileBalls") ? overflow / 1.35 : overflow);
       ball.speed = Math.min(ball.speed + 0.008, 0.25);
       addFloatingText(hitPoint.x, hitPoint.y - 20, "BREAK", "#ffffff", 0.9);
       burst(hitPoint.x, hitPoint.y, "#ffffff", 30, 235);
@@ -796,6 +1044,7 @@ function completeWave() {
   state.waveReport = { ...state.waveStats };
   state.phase = "waveComplete";
   state.waveStats = null;
+  applyGlassRegen();
   updateHud();
 }
 
@@ -807,7 +1056,16 @@ function earnShards(stats) {
   if (stats.coreBroken) shards += 25;
   shards += stats.cleanBreakBonus || 0;
   if (hasReward("glassTax")) shards = Math.ceil(shards * 1.2);
+  shards = Math.ceil(shards * state.level.shardMultiplier);
   return shards;
+}
+
+function applyGlassRegen() {
+  if (!hasLevelModifier(state.level, "glassRegen")) return;
+  for (const segment of state.segments) {
+    if (segment.broken || segment.hp >= segment.maxHp) continue;
+    segment.hp = Math.min(segment.maxHp, segment.hp + (segment.maxHp - segment.hp) * 0.1);
+  }
 }
 
 function buyUpgrade(type) {
@@ -836,7 +1094,21 @@ function createRewardChoices() {
   const owned = new Set(state.rewards.map((reward) => reward.id));
   const available = REWARD_POOL.filter((reward) => !owned.has(reward.id));
   const choices = [];
-  let seed = state.levelIndex * 17 + state.totalLaunches * 31 + state.shards;
+  let seed = state.room * 17 + state.totalLaunches * 31 + state.shards;
+
+  if (["elite"].includes(state.level.difficulty)) {
+    const rare = available.find((reward) => reward.tier === "rare");
+    if (rare) {
+      choices.push(rare);
+      available.splice(available.indexOf(rare), 1);
+    }
+  } else if (state.level.difficulty === "risky" && seed % 2 === 0) {
+    const rare = available.find((reward) => reward.tier === "rare");
+    if (rare) {
+      choices.push(rare);
+      available.splice(available.indexOf(rare), 1);
+    }
+  }
 
   while (choices.length < 3 && available.length > 0) {
     seed = (seed * 9301 + 49297) % 233280;
@@ -856,10 +1128,56 @@ function chooseReward(index) {
 
   state.selectedReward = reward;
   state.rewards.push(reward);
-  state.phase = "nextLevelReady";
+  state.nextChoices = createNextChamberChoices();
+  if (state.nextChoices.length === 1 && state.nextChoices[0].difficulty === "boss") {
+    state.selectedNextLevel = state.nextChoices[0];
+    state.phase = "nextLevelReady";
+  } else {
+    state.phase = "nextChamberChoice";
+  }
   audio.play("upgrade");
   addFloatingText(CENTER.x, 100, `${reward.name} acquired`, "#fff37a", 1);
   updateHud();
+}
+
+function createNextChamberChoices() {
+  if (state.room >= ACT_ROOMS - 1) return [BOSS_LEVEL];
+
+  const pool = LEVEL_POOL.filter((level) => {
+    if (level.id === TUTORIAL_LEVEL.id) return false;
+    if (level.id === state.previousLevelId) return false;
+    if (state.room < 3 && level.difficulty === "elite") return false;
+    return true;
+  });
+  const choices = [];
+  let seed = state.room * 101 + state.totalLaunches * 17 + state.shards * 7;
+
+  if (state.room <= 3) {
+    const normal = pool.find((level) => level.difficulty === "normal" || level.difficulty === "safe");
+    if (normal) choices.push(normal);
+  }
+
+  while (choices.length < 3 && pool.length > 0) {
+    seed = (seed * 9301 + 49297) % 233280;
+    const index = seed % pool.length;
+    const [choice] = pool.splice(index, 1);
+    if (!choices.some((level) => level.id === choice.id)) choices.push(choice);
+  }
+
+  return choices.slice(0, 3);
+}
+
+function chooseNextChamber(index) {
+  const level = state.nextChoices[index];
+  if (!level) {
+    audio.play("denied");
+    return;
+  }
+
+  state.selectedNextLevel = level;
+  state.phase = "nextLevelReady";
+  audio.play("uiClick");
+  addFloatingText(CENTER.x, 100, `${level.name} selected`, getTheme().accentColor, 0.95);
 }
 
 function toggleMute() {
@@ -872,8 +1190,10 @@ function damageCore(amount, ball) {
   if (state.core.broken) return;
 
   const damage = hasReward("coreBruiser") ? amount * 1.25 : amount;
-  const appliedDamage = Math.min(damage, state.core.hp);
-  state.core.hp = Math.max(0, state.core.hp - damage);
+  const armor = getCoreArmor();
+  const finalDamage = Math.max(1, damage - armor);
+  const appliedDamage = Math.min(finalDamage, state.core.hp);
+  state.core.hp = Math.max(0, state.core.hp - finalDamage);
   state.waveStats.damageDealt += appliedDamage;
   state.waveStats.depthReached = 1;
   state.bestDepth = 1;
@@ -898,7 +1218,7 @@ function damageCore(amount, ball) {
 }
 
 function winLevel() {
-  const finalLevel = state.levelIndex === LEVELS.length - 1;
+  const finalLevel = state.room >= ACT_ROOMS;
   state.phase = finalLevel ? "actCleared" : "levelVictory";
   state.balls.forEach((ball) => {
     ball.alive = false;
@@ -1283,19 +1603,15 @@ function drawWaveReport() {
 }
 
 function drawWinOverlay() {
-  if (!["levelVictory", "rewardChoice", "nextLevelReady", "actCleared"].includes(state.phase)) return;
+  if (!["levelVictory", "rewardChoice", "nextChamberChoice", "nextLevelReady", "actCleared"].includes(state.phase)) return;
 
-  const isFinal = state.levelIndex === LEVELS.length - 1;
-  const nextLevel = LEVELS[state.levelIndex + 1];
+  const isFinal = state.phase === "actCleared";
+  const panel = getPanelRect();
 
   ctx.save();
   ctx.fillStyle = "rgba(2, 5, 9, 0.42)";
   ctx.fillRect(0, 0, WIDTH, HEIGHT);
-  ctx.fillStyle = "rgba(4, 9, 14, 0.78)";
-  ctx.strokeStyle = rgba(getTheme().accentColor, 0.52);
-  roundRect(CENTER.x - 300, CENTER.y - 230, 600, 430, 8);
-  ctx.fill();
-  ctx.stroke();
+  drawPanelRect(panel);
 
   ctx.shadowBlur = 36;
   ctx.shadowColor = "#ffffff";
@@ -1303,28 +1619,32 @@ function drawWinOverlay() {
   ctx.font = "900 54px Inter, system-ui, sans-serif";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillText(isFinal ? "ACT 1 CLEARED" : "LEVEL COMPLETE", CENTER.x, CENTER.y - 170);
+  ctx.fillText(isFinal ? "ACT 1 CLEARED" : "LEVEL COMPLETE", CENTER.x, panel.y + 46);
 
   ctx.shadowBlur = 0;
   ctx.fillStyle = "#b9f8ff";
   ctx.font = "800 22px Inter, system-ui, sans-serif";
-  ctx.fillText(state.level.name, CENTER.x, CENTER.y - 122);
+  ctx.fillText(state.level.name, CENTER.x, panel.y + 88);
 
   if (isFinal) {
     drawActClearedStats();
     ctx.fillStyle = "#baf5ff";
     ctx.font = "800 18px Inter, system-ui, sans-serif";
-    ctx.fillText("Press SPACE to start new run", CENTER.x, CENTER.y + 160);
+    ctx.fillText("Press SPACE to start new run", CENTER.x, panel.y + panel.h - 38);
     ctx.restore();
     return;
   }
 
-  drawLevelCompleteStats(nextLevel);
-  drawRewardChoices();
+  drawLevelCompleteStats(panel);
+  if (state.phase === "nextChamberChoice" || state.phase === "nextLevelReady") {
+    drawNextChamberChoices(panel);
+  } else {
+    drawRewardChoices(panel);
+  }
   ctx.restore();
 }
 
-function drawLevelCompleteStats(nextLevel) {
+function drawLevelCompleteStats(panel) {
   ctx.font = "700 15px Inter, system-ui, sans-serif";
   const lines = [
     ["Launches this level", state.launches],
@@ -1332,21 +1652,20 @@ function drawLevelCompleteStats(nextLevel) {
     ["Shards earned this level", state.levelShardsEarned],
     ["Best depth", "100%"],
     ["Core", "destroyed"],
-    ["Next level", nextLevel.name],
   ];
-  let y = CENTER.y - 86;
+  let y = panel.y + 118;
   for (const [label, value] of lines) {
     ctx.fillStyle = "#93aeb9";
     ctx.textAlign = "left";
-    ctx.fillText(label, CENTER.x - 250, y);
+    ctx.fillText(label, panel.x + 34, y);
     ctx.fillStyle = "#eaffff";
     ctx.textAlign = "right";
-    ctx.fillText(String(value), CENTER.x + 250, y);
+    ctx.fillText(String(value), panel.x + panel.w - 34, y);
     y += 24;
   }
 }
 
-function drawRewardChoices() {
+function drawRewardChoices(panel) {
   ctx.textAlign = "center";
   ctx.fillStyle = "#ffffff";
   ctx.font = "900 18px Inter, system-ui, sans-serif";
@@ -1357,36 +1676,17 @@ function drawRewardChoices() {
         ? "Reward acquired"
         : "Choose reward: 1 / 2 / 3",
     CENTER.x,
-    CENTER.y + 70,
+    panel.y + 252,
   );
-
-  const cardY = CENTER.y + 100;
-  const cardW = 176;
-  const cardH = 86;
-  const gap = 14;
-  const startX = CENTER.x - cardW - gap;
-
-  state.rewardChoices.forEach((reward, index) => {
-    const x = startX + index * (cardW + gap);
-    const selected = state.selectedReward?.id === reward.id;
-    ctx.fillStyle = selected ? rgba(getTheme().accentColor, 0.22) : "rgba(9, 19, 27, 0.84)";
-    ctx.strokeStyle = selected ? "#ffffff" : rgba(getTheme().accentColor, 0.34);
-    roundRect(x, cardY, cardW, cardH, 8);
-    ctx.fill();
-    ctx.stroke();
-
-    ctx.fillStyle = "#ffffff";
-    ctx.font = "900 14px Inter, system-ui, sans-serif";
-    ctx.fillText(`${index + 1}. ${reward.name}`, x + cardW / 2, cardY + 18);
-    ctx.fillStyle = "#b9dbe4";
-    ctx.font = "700 11px Inter, system-ui, sans-serif";
-    wrapText(reward.description, x + 14, cardY + 38, cardW - 28, 14);
-  });
+  const cards = getCardRects(panel, 3, panel.y + 274, 96);
+  state.rewardChoices.forEach((reward, index) =>
+    drawRewardCard(ctx, reward, cards[index], index, state.selectedReward?.id === reward.id),
+  );
 
   if (state.phase === "nextLevelReady") {
     ctx.fillStyle = "#baf5ff";
     ctx.font = "900 15px Inter, system-ui, sans-serif";
-    ctx.fillText("Press SPACE for next level", CENTER.x, CENTER.y + 208);
+    ctx.fillText("Press SPACE to enter chamber", CENTER.x, panel.y + panel.h - 28);
   }
 }
 
@@ -1410,6 +1710,110 @@ function drawActClearedStats() {
     ctx.fillText(String(value), CENTER.x + 210, y);
     y += 28;
   }
+}
+
+function drawNextChamberChoices(panel) {
+  const bossNext = state.nextChoices.length === 1 && state.nextChoices[0].difficulty === "boss";
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "900 18px Inter, system-ui, sans-serif";
+  ctx.fillText(
+    state.phase === "nextLevelReady"
+      ? `${state.selectedNextLevel.name} selected`
+      : bossNext
+        ? "Boss chamber ahead"
+        : "Choose next chamber: 1 / 2 / 3",
+    CENTER.x,
+    panel.y + 252,
+  );
+
+  const cards = getCardRects(panel, state.nextChoices.length, panel.y + 274, 122);
+  state.nextChoices.forEach((level, index) => {
+    drawChamberCard(ctx, level, cards[index], index, state.selectedNextLevel?.id === level.id);
+  });
+
+  if (state.phase === "nextLevelReady") {
+    ctx.fillStyle = "#baf5ff";
+    ctx.font = "900 15px Inter, system-ui, sans-serif";
+    ctx.fillText("Press SPACE to enter chamber", CENTER.x, panel.y + panel.h - 28);
+  }
+}
+
+function getPanelRect() {
+  const margin = 34;
+  return {
+    x: margin,
+    y: 40,
+    w: WIDTH - margin * 2,
+    h: HEIGHT - 80,
+  };
+}
+
+function drawPanelRect(rect) {
+  ctx.fillStyle = "rgba(4, 9, 14, 0.82)";
+  ctx.strokeStyle = rgba(getTheme().accentColor, 0.52);
+  roundRect(rect.x, rect.y, rect.w, rect.h, 8);
+  ctx.fill();
+  ctx.stroke();
+}
+
+function getCardRects(panel, count, top, cardH) {
+  const gap = 14;
+  const side = 34;
+  const available = panel.w - side * 2;
+  if (available < 560) {
+    const h = Math.min(cardH, 92);
+    return Array.from({ length: count }, (_, index) => ({
+      x: panel.x + side,
+      y: top + index * (h + gap),
+      w: available,
+      h,
+    }));
+  }
+  const w = (available - gap * (count - 1)) / count;
+  return Array.from({ length: count }, (_, index) => ({
+    x: panel.x + side + index * (w + gap),
+    y: top,
+    w,
+    h: cardH,
+  }));
+}
+
+function drawRewardCard(context, reward, rect, index, selected) {
+  context.fillStyle = selected ? rgba(getTheme().accentColor, 0.24) : "rgba(9, 19, 27, 0.88)";
+  context.strokeStyle = selected ? "#ffffff" : rgba(getTheme().accentColor, 0.34);
+  roundRect(rect.x, rect.y, rect.w, rect.h, 8);
+  context.fill();
+  context.stroke();
+
+  context.fillStyle = "#ffffff";
+  context.font = "900 14px Inter, system-ui, sans-serif";
+  context.textAlign = "left";
+  context.fillText(`${index + 1}. ${reward.name}`, rect.x + 14, rect.y + 22);
+  context.fillStyle = "#b9dbe4";
+  context.font = "700 12px Inter, system-ui, sans-serif";
+  wrapText(context, reward.description, rect.x + 14, rect.y + 44, rect.w - 28, 15, 3);
+}
+
+function drawChamberCard(context, level, rect, index, selected) {
+  const difficulty = DIFFICULTY[level.difficulty];
+  context.fillStyle = selected ? rgba(level.theme.accentColor, 0.24) : "rgba(9, 19, 27, 0.88)";
+  context.strokeStyle = selected ? "#ffffff" : rgba(level.theme.accentColor, 0.36);
+  roundRect(rect.x, rect.y, rect.w, rect.h, 8);
+  context.fill();
+  context.stroke();
+
+  context.textAlign = "left";
+  context.fillStyle = "#ffffff";
+  context.font = "900 14px Inter, system-ui, sans-serif";
+  context.fillText(`${index + 1}. ${level.name}`, rect.x + 14, rect.y + 22);
+  context.fillStyle = "#baf5ff";
+  context.font = "800 12px Inter, system-ui, sans-serif";
+  context.fillText(`${difficulty.label} chamber`, rect.x + 14, rect.y + 42);
+  context.fillStyle = "#b9dbe4";
+  context.font = "700 11px Inter, system-ui, sans-serif";
+  const mods = getModifierNames(level).join(", ") || "None";
+  wrapText(context, `Track: ${level.trackType}. Mods: ${mods}. Reward: +${Math.round((difficulty.shardMultiplier - 1) * 100)}% shards. ${getDangerText(level)}`, rect.x + 14, rect.y + 62, rect.w - 28, 14, 4);
 }
 
 function drawTransitionFade() {
@@ -1585,6 +1989,11 @@ function getGlassDamage(power) {
   return power * 1.5;
 }
 
+function getCoreArmor() {
+  if (!hasLevelModifier(state.level, "armoredCore")) return 0;
+  return state.level.difficulty === "elite" || state.level.difficulty === "boss" ? 14 : 8;
+}
+
 function getEffectiveMultiplierValue(multiplier) {
   if (!hasReward("multiplierPolish") || state.levelMultiplierPolishUsed) return multiplier.value;
   state.levelMultiplierPolishUsed = true;
@@ -1593,6 +2002,10 @@ function getEffectiveMultiplierValue(multiplier) {
 
 function hasReward(id) {
   return state.rewards.some((reward) => reward.id === id);
+}
+
+function hasLevelModifier(level, id) {
+  return level.modifiers?.includes(id);
 }
 
 function getUpgradeCost(type) {
@@ -1608,9 +2021,11 @@ function getBrokenGlassCount() {
 
 function updateHud() {
   const broken = getBrokenGlassCount();
-  hud.levelIndex.textContent = `${state.levelIndex + 1} / ${LEVELS.length}`;
+  hud.levelIndex.textContent = `${state.room} / ${ACT_ROOMS}`;
   hud.levelName.textContent = state.level.name;
+  hud.difficulty.textContent = DIFFICULTY[state.level.difficulty].label;
   hud.trackType.textContent = state.level.trackType;
+  hud.modifiers.textContent = getModifierNames().join(", ") || "none";
   hud.launches.textContent = state.launches;
   hud.totalLaunches.textContent = state.totalLaunches;
   hud.activeBalls.textContent = state.balls.length;
@@ -1627,6 +2042,16 @@ function updateHud() {
 
 function getTheme() {
   return state.level.theme;
+}
+
+function getModifierNames(level = state.level) {
+  return (level.modifiers || []).map((id) => LEVEL_MODIFIERS[id]?.name || id);
+}
+
+function getDangerText(level) {
+  const names = getModifierNames(level);
+  if (names.length === 0) return "Stable chamber.";
+  return level.modifierDetails?.[0]?.shortDescription || LEVEL_MODIFIERS[level.modifiers[0]]?.shortDescription || "";
 }
 
 function formatPercent(value) {
@@ -1649,16 +2074,19 @@ function roundRect(x, y, w, h, radius) {
   ctx.closePath();
 }
 
-function wrapText(text, x, y, maxWidth, lineHeight) {
+function wrapText(context, text, x, y, maxWidth, lineHeight, maxLines = 99) {
   const words = text.split(" ");
   let line = "";
   let lineY = y;
+  let lines = 0;
 
   for (const word of words) {
     const test = line ? `${line} ${word}` : word;
-    if (ctx.measureText(test).width > maxWidth && line) {
-      ctx.textAlign = "left";
-      ctx.fillText(line, x, lineY);
+    if (context.measureText(test).width > maxWidth && line) {
+      context.textAlign = "left";
+      context.fillText(lines + 1 >= maxLines ? `${line}...` : line, x, lineY);
+      lines += 1;
+      if (lines >= maxLines) return;
       line = word;
       lineY += lineHeight;
     } else {
@@ -1667,8 +2095,8 @@ function wrapText(text, x, y, maxWidth, lineHeight) {
   }
 
   if (line) {
-    ctx.textAlign = "left";
-    ctx.fillText(line, x, lineY);
+    context.textAlign = "left";
+    context.fillText(line, x, lineY);
   }
 }
 
