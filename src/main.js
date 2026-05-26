@@ -15,6 +15,7 @@ const hud = {
   powerUpgrade: document.querySelector("#powerUpgrade"),
   speedUpgrade: document.querySelector("#speedUpgrade"),
   ballsUpgrade: document.querySelector("#ballsUpgrade"),
+  rewardCount: document.querySelector("#rewardCount"),
   brokenGlass: document.querySelector("#brokenGlass"),
   coreHp: document.querySelector("#coreHp"),
   coreDistance: document.querySelector("#coreDistance"),
@@ -28,11 +29,56 @@ const TAU = Math.PI * 2;
 
 const BASE_BALL_POWER = 8;
 const BASE_BALL_SPEED = 0.15;
+const TRACK_WIDTH = 54;
+const MAX_LANE_OFFSET = TRACK_WIDTH * 0.28;
 const UPGRADE_COSTS = {
   power: [10, 15, 25, 40, 60, 90, 135],
   speed: [8, 12, 18, 28, 42, 64, 96],
   balls: [25, 40, 65, 100, 150, 225],
 };
+
+const REWARD_POOL = [
+  {
+    id: "temperedCore",
+    name: "Tempered Core",
+    description: "+15% base power until run end.",
+  },
+  {
+    id: "quickLaunch",
+    name: "Quick Launch",
+    description: "+8% base speed until run end.",
+  },
+  {
+    id: "extraMarble",
+    name: "Extra Marble",
+    description: "+1 start ball until run end.",
+  },
+  {
+    id: "glassTax",
+    name: "Glass Tax",
+    description: "+20% shards from wave rewards.",
+  },
+  {
+    id: "multiplierPolish",
+    name: "Multiplier Polish",
+    description: "First multiplier each level gets +1 value.",
+  },
+  {
+    id: "deepCrack",
+    name: "Deep Crack",
+    description: "First hit each level deals +50% damage.",
+  },
+  {
+    id: "coreBruiser",
+    name: "Core Bruiser",
+    description: "+25% damage to core.",
+  },
+  {
+    id: "cleanBreak",
+    name: "Clean Break",
+    description: "+5 shards for each 10th broken segment in a level.",
+  },
+];
 
 const LEVELS = [
   {
@@ -109,12 +155,30 @@ const LEVELS = [
     },
   },
   {
+    name: "Zigzag Coil",
+    trackType: "zigzagCoil",
+    segments: 92,
+    coreHp: 260,
+    hpCurve: { start: 4, end: 26, exponent: 1.5 },
+    multipliers: [
+      { progress: 0.16, value: 2 },
+      { progress: 0.38, value: 3 },
+      { progress: 0.64, value: 2 },
+      { progress: 0.86, value: 5 },
+    ],
+    theme: {
+      accentColor: "#9ee8ff",
+      glassTint: "#aeefff",
+      backgroundGridStrength: 0.24,
+    },
+  },
+  {
     name: "Broken Core",
     trackType: "brokenSpiral",
     turns: 3.25,
-    segments: 62,
-    coreHp: 285,
-    hpCurve: { start: 5, end: 34, exponent: 1.55 },
+    segments: 68,
+    coreHp: 390,
+    hpCurve: { start: 6, end: 42, exponent: 1.6 },
     multipliers: [
       { progress: 0.25, value: 2 },
       { progress: 0.52, value: 3 },
@@ -151,6 +215,14 @@ const state = {
     speed: 0,
     balls: 0,
   },
+  rewards: [],
+  rewardChoices: [],
+  selectedReward: null,
+  levelShardsEarned: 0,
+  levelFirstHitUsed: false,
+  levelMultiplierPolishUsed: false,
+  levelVictoryTimer: 0,
+  transitionFade: 1,
   waveStats: null,
   waveReport: null,
   coreFlash: 0,
@@ -170,9 +242,9 @@ function init() {
       return;
     }
 
-    if (event.key === "1") buyUpgrade("power");
-    if (event.key === "2") buyUpgrade("speed");
-    if (event.key === "3") buyUpgrade("balls");
+    if (event.key === "1") handleNumberKey(0, "power");
+    if (event.key === "2") handleNumberKey(1, "speed");
+    if (event.key === "3") handleNumberKey(2, "balls");
     if (event.key.toLowerCase() === "m") toggleMute();
   });
 
@@ -180,13 +252,15 @@ function init() {
 }
 
 function handleSpace() {
-  if (state.phase === "victory") {
+  if (state.phase === "nextLevelReady") {
     audio.play("uiClick");
-    if (state.levelIndex < LEVELS.length - 1) {
-      startLevel(state.levelIndex + 1);
-    } else {
-      resetRun();
-    }
+    startLevel(state.levelIndex + 1);
+    return;
+  }
+
+  if (state.phase === "actCleared") {
+    audio.play("uiClick");
+    resetRun();
     return;
   }
 
@@ -195,11 +269,23 @@ function handleSpace() {
   }
 }
 
+function handleNumberKey(index, upgradeType) {
+  if (state.phase === "rewardChoice") {
+    chooseReward(index);
+    return;
+  }
+
+  buyUpgrade(upgradeType);
+}
+
 function resetRun() {
   state.levelIndex = 0;
   state.shards = 0;
   state.totalLaunches = 0;
   state.upgrades = { power: 0, speed: 0, balls: 0 };
+  state.rewards = [];
+  state.rewardChoices = [];
+  state.selectedReward = null;
   startLevel(0);
 }
 
@@ -215,6 +301,13 @@ function startLevel(levelIndex) {
   state.floatingTexts = [];
   state.launches = 0;
   state.bestDepth = 0;
+  state.levelShardsEarned = 0;
+  state.levelFirstHitUsed = false;
+  state.levelMultiplierPolishUsed = false;
+  state.rewardChoices = [];
+  state.selectedReward = null;
+  state.levelVictoryTimer = 0;
+  state.transitionFade = 1;
   state.core = {
     hp: state.level.coreHp,
     maxHp: state.level.coreHp,
@@ -234,6 +327,7 @@ function generateTrack(level) {
     snake: generateSnakeTrack,
     rings: generateRingsTrack,
     clover: generateCloverTrack,
+    zigzagCoil: generateZigzagCoilTrack,
     brokenSpiral: generateBrokenSpiralTrack,
   };
 
@@ -320,6 +414,36 @@ function generateCloverTrack() {
     points.push({
       x: CENTER.x + Math.cos(angle) * radius,
       y: CENTER.y + Math.sin(angle) * radius,
+    });
+  }
+
+  return points;
+}
+
+function generateZigzagCoilTrack() {
+  const points = [];
+  const samples = 820;
+  const anchors = [
+    { x: 110, y: 145 },
+    { x: 790, y: 235 },
+    { x: 160, y: 345 },
+    { x: 760, y: 465 },
+    { x: 190, y: 590 },
+    { x: 650, y: 690 },
+    { x: CENTER.x + 40, y: CENTER.y + 24 },
+  ];
+
+  for (let i = 0; i <= samples; i += 1) {
+    const t = i / samples;
+    const scaled = t * (anchors.length - 1);
+    const index = Math.min(Math.floor(scaled), anchors.length - 2);
+    const local = smoothstep(scaled - index);
+    const a = anchors[index];
+    const b = anchors[index + 1];
+    const wobble = Math.sin(t * Math.PI * 9) * 18 * (1 - t * 0.55);
+    points.push({
+      x: lerp(a.x, b.x, local),
+      y: lerp(a.y, b.y, local) + wobble,
     });
   }
 
@@ -441,17 +565,10 @@ function launchWave() {
 
   const startBalls = getStartBalls();
   const startPoint = getPointAtProgress(0);
-  const tangent = getTangentAtProgress(0.01);
-  const normal = { x: -tangent.y, y: tangent.x };
-  const spread = Math.min(42, 8 + startBalls * 5);
+  const laneOffsets = getStartLaneOffsets(startBalls);
 
   for (let i = 0; i < startBalls; i += 1) {
-    const lane = i - (startBalls - 1) / 2;
-    const offset = {
-      x: normal.x * lane * spread + tangent.x * Math.abs(lane) * -4,
-      y: normal.y * lane * spread + tangent.y * Math.abs(lane) * -4,
-    };
-    state.balls.push(createBall(0, getBallPower(), getBallSpeed(), offset, "#f8fbff"));
+    state.balls.push(createBall(0, getBallPower(), getBallSpeed(), laneOffsets[i], "#f8fbff"));
   }
 
   audio.play("launch");
@@ -467,13 +584,13 @@ function createWaveStats() {
     damageDealt: 0,
     multiplierCounts: {},
     shardsEarned: 0,
+    cleanBreakBonus: 0,
     coreBroken: false,
   };
 }
 
-function createBall(progress, power, speed, smallOffset, color) {
-  const point = getPointAtProgress(progress);
-  return {
+function createBall(progress, power, speed, laneOffset, color, spreadOffset = 0) {
+  const ball = {
     progress,
     speed,
     power,
@@ -481,12 +598,17 @@ function createBall(progress, power, speed, smallOffset, color) {
     radius: 8,
     color,
     triggeredMultipliers: new Set(),
-    smallOffset,
+    laneOffset: clamp(laneOffset, -MAX_LANE_OFFSET, MAX_LANE_OFFSET),
+    spreadOffset: clamp(spreadOffset, -MAX_LANE_OFFSET, MAX_LANE_OFFSET),
     impactCooldown: 0,
-    x: point.x + smallOffset.x,
-    y: point.y + smallOffset.y,
+    x: 0,
+    y: 0,
     trail: [],
   };
+  const renderPosition = getBallRenderPosition(ball);
+  ball.x = renderPosition.x;
+  ball.y = renderPosition.y;
+  return ball;
 }
 
 function tick(time) {
@@ -508,8 +630,14 @@ function update(dt) {
     completeWave();
   }
 
+  if (state.phase === "levelVictory") {
+    state.levelVictoryTimer -= dt;
+    if (state.levelVictoryTimer <= 0) state.phase = "rewardChoice";
+  }
+
   if (state.coreFlash > 0) state.coreFlash = Math.max(0, state.coreFlash - dt);
   if (state.screenShake > 0) state.screenShake = Math.max(0, state.screenShake - dt * 18);
+  if (state.transitionFade > 0) state.transitionFade = Math.max(0, state.transitionFade - dt * 1.35);
 
   updateHud();
 }
@@ -524,6 +652,7 @@ function updateBalls(dt) {
     if (state.phase !== "running") break;
 
     ball.impactCooldown = Math.max(0, ball.impactCooldown - dt);
+    ball.spreadOffset *= Math.max(0, 1 - dt * 2.8);
     ball.progress += ball.speed * dt;
     updateWaveStats(ball.progress);
 
@@ -532,19 +661,19 @@ function updateBalls(dt) {
 
     if (ball.progress >= 1 && ball.alive) {
       const corePoint = getPointAtProgress(1);
-      ball.x = corePoint.x + ball.smallOffset.x * 0.25;
-      ball.y = corePoint.y + ball.smallOffset.y * 0.25;
+      ball.x = corePoint.x;
+      ball.y = corePoint.y;
       damageCore(ball.power, ball);
     }
 
-    const point = getPointAtProgress(Math.min(ball.progress, 1));
-    ball.x = point.x + ball.smallOffset.x;
-    ball.y = point.y + ball.smallOffset.y;
+    const renderPosition = getBallRenderPosition(ball);
+    ball.x = renderPosition.x;
+    ball.y = renderPosition.y;
     ball.trail.push({ x: ball.x, y: ball.y });
     if (ball.trail.length > 12) ball.trail.shift();
   }
 
-  if (state.phase === "victory") {
+  if (state.phase !== "running") {
     state.balls = [];
     return;
   }
@@ -567,8 +696,9 @@ function handleGlassCollision(ball) {
 
   while (segment && ball.alive) {
     const hitPoint = getPointAtProgress(segment.progressStart);
-    const appliedDamage = Math.min(ball.power, segment.hp);
-    segment.hp -= ball.power;
+    const damage = getGlassDamage(ball.power);
+    const appliedDamage = Math.min(damage, segment.hp);
+    segment.hp -= damage;
     ball.impactCooldown = 0.045;
     ball.progress = Math.max(ball.progress, segment.progressEnd + 0.001);
     updateWaveStats(ball.progress);
@@ -583,6 +713,10 @@ function handleGlassCollision(ball) {
       segment.broken = true;
       segment.hp = 0;
       state.waveStats.glassBrokenThisWave += 1;
+      if (hasReward("cleanBreak") && getBrokenGlassCount() % 10 === 0) {
+        state.waveStats.cleanBreakBonus += 5;
+        addFloatingText(hitPoint.x, hitPoint.y - 40, "+5 SHARDS", "#fff37a", 0.85);
+      }
       ball.power = Math.max(1, overflow);
       ball.speed = Math.min(ball.speed + 0.008, 0.25);
       addFloatingText(hitPoint.x, hitPoint.y - 20, "BREAK", "#ffffff", 0.9);
@@ -616,52 +750,48 @@ function handleMultipliers(ball, spawned) {
     multiplier.triggered += 1;
     multiplier.flash = 1;
 
-    const label = `x${multiplier.value}`;
+    const value = getEffectiveMultiplierValue(multiplier);
+    const label = `x${value}`;
     state.waveStats.multiplierCounts[label] =
       (state.waveStats.multiplierCounts[label] || 0) + 1;
 
     audio.play("multiplier");
     burst(multiplier.point.x, multiplier.point.y, "#fff37a", 30, 250);
     addFloatingText(multiplier.point.x, multiplier.point.y - 24, `${label}!`, "#fff37a", 1.1);
-    addScreenShake(1.6 + multiplier.value * 0.3);
+    addScreenShake(1.6 + value * 0.3);
 
-    if (multiplier.value <= 1) {
+    if (value <= 1) {
       ball.color = "#d9fff2";
       continue;
     }
 
-    const tangent = getTangentAtProgress(multiplier.progress);
-    const normal = { x: -tangent.y, y: tangent.x };
-    const copies = multiplier.value - 1;
+    const copies = value - 1;
+    const laneOffsets = getSpreadLaneOffsets(value);
 
     for (let i = 0; i < copies; i += 1) {
-      const lane = i - (copies - 1) / 2;
       const clone = {
         ...ball,
         power: Math.max(2, Math.ceil(ball.power * 0.84)),
         radius: Math.max(6, ball.radius - 1),
-        color: pickBallColor(multiplier.value, i),
+        color: pickBallColor(value, i),
         triggeredMultipliers: new Set(ball.triggeredMultipliers),
-        smallOffset: {
-          x: normal.x * lane * 13 + tangent.x * (i + 1) * 2,
-          y: normal.y * lane * 13 + tangent.y * (i + 1) * 2,
-        },
+        laneOffset: clamp(ball.laneOffset + laneOffsets[i + 1], -MAX_LANE_OFFSET, MAX_LANE_OFFSET),
+        spreadOffset: laneOffsets[i + 1] * 0.5,
         impactCooldown: 0.06,
         trail: [],
       };
       spawned.push(clone);
     }
 
-    ball.smallOffset = {
-      x: normal.x * -8,
-      y: normal.y * -8,
-    };
+    ball.laneOffset = clamp(ball.laneOffset + laneOffsets[0], -MAX_LANE_OFFSET, MAX_LANE_OFFSET);
+    ball.spreadOffset = laneOffsets[0] * 0.5;
   }
 }
 
 function completeWave() {
   const shardsEarned = earnShards(state.waveStats);
   state.shards += shardsEarned;
+  state.levelShardsEarned += shardsEarned;
   state.waveStats.shardsEarned = shardsEarned;
   state.waveReport = { ...state.waveStats };
   state.phase = "waveComplete";
@@ -675,6 +805,8 @@ function earnShards(stats) {
   shards += Math.floor(stats.damageDealt / 25);
   if (stats.depthReached > stats.previousBestDepth + 0.001) shards += 5;
   if (stats.coreBroken) shards += 25;
+  shards += stats.cleanBreakBonus || 0;
+  if (hasReward("glassTax")) shards = Math.ceil(shards * 1.2);
   return shards;
 }
 
@@ -687,7 +819,7 @@ function buyUpgrade(type) {
 
   const price = getUpgradeCost(type);
   if (state.shards < price) {
-    addFloatingText(CENTER.x, 82, "Need shards", "#ffb6b6", 0.75);
+    addFloatingText(CENTER.x, 82, "not enough shards", "#ffb6b6", 0.75);
     audio.play("denied");
     return;
   }
@@ -700,6 +832,36 @@ function buyUpgrade(type) {
   updateHud();
 }
 
+function createRewardChoices() {
+  const owned = new Set(state.rewards.map((reward) => reward.id));
+  const available = REWARD_POOL.filter((reward) => !owned.has(reward.id));
+  const choices = [];
+  let seed = state.levelIndex * 17 + state.totalLaunches * 31 + state.shards;
+
+  while (choices.length < 3 && available.length > 0) {
+    seed = (seed * 9301 + 49297) % 233280;
+    const index = seed % available.length;
+    choices.push(available.splice(index, 1)[0]);
+  }
+
+  return choices;
+}
+
+function chooseReward(index) {
+  const reward = state.rewardChoices[index];
+  if (!reward) {
+    audio.play("denied");
+    return;
+  }
+
+  state.selectedReward = reward;
+  state.rewards.push(reward);
+  state.phase = "nextLevelReady";
+  audio.play("upgrade");
+  addFloatingText(CENTER.x, 100, `${reward.name} acquired`, "#fff37a", 1);
+  updateHud();
+}
+
 function toggleMute() {
   const muted = audio.toggleMute();
   addFloatingText(CENTER.x, 76, muted ? "AUDIO OFF" : "AUDIO ON", muted ? "#ffb6b6" : "#baf5ff", 0.8);
@@ -709,8 +871,9 @@ function toggleMute() {
 function damageCore(amount, ball) {
   if (state.core.broken) return;
 
-  const appliedDamage = Math.min(amount, state.core.hp);
-  state.core.hp = Math.max(0, state.core.hp - amount);
+  const damage = hasReward("coreBruiser") ? amount * 1.25 : amount;
+  const appliedDamage = Math.min(damage, state.core.hp);
+  state.core.hp = Math.max(0, state.core.hp - damage);
   state.waveStats.damageDealt += appliedDamage;
   state.waveStats.depthReached = 1;
   state.bestDepth = 1;
@@ -729,18 +892,23 @@ function damageCore(amount, ball) {
     state.waveStats.coreBroken = true;
     state.waveStats.shardsEarned = earnShards(state.waveStats);
     state.shards += state.waveStats.shardsEarned;
+    state.levelShardsEarned += state.waveStats.shardsEarned;
     winLevel();
   }
 }
 
 function winLevel() {
-  state.phase = "victory";
+  const finalLevel = state.levelIndex === LEVELS.length - 1;
+  state.phase = finalLevel ? "actCleared" : "levelVictory";
   state.balls.forEach((ball) => {
     ball.alive = false;
   });
   state.balls = [];
   state.coreFlash = 1.6;
   state.waveReport = null;
+  state.levelVictoryTimer = 0.65;
+  state.rewardChoices = finalLevel ? [] : createRewardChoices();
+  state.selectedReward = null;
   const corePoint = getPointAtProgress(1);
   burst(corePoint.x, corePoint.y, "#ffffff", 125, 420);
   burst(corePoint.x, corePoint.y, "#fff37a", 72, 300);
@@ -796,6 +964,7 @@ function draw() {
 
   drawWaveReport();
   drawWinOverlay();
+  drawTransitionFade();
 }
 
 function drawBackground() {
@@ -985,6 +1154,11 @@ function drawCore() {
   ctx.beginPath();
   ctx.arc(corePoint.x, corePoint.y, 14 + pulse * 2, 0, TAU);
   ctx.fill();
+  ctx.fillStyle = "#baf5ff";
+  ctx.font = "800 11px Inter, system-ui, sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText("CORE", corePoint.x, corePoint.y + radius + 18);
   ctx.restore();
 }
 
@@ -1109,7 +1283,7 @@ function drawWaveReport() {
 }
 
 function drawWinOverlay() {
-  if (state.phase !== "victory") return;
+  if (!["levelVictory", "rewardChoice", "nextLevelReady", "actCleared"].includes(state.phase)) return;
 
   const isFinal = state.levelIndex === LEVELS.length - 1;
   const nextLevel = LEVELS[state.levelIndex + 1];
@@ -1119,30 +1293,130 @@ function drawWinOverlay() {
   ctx.fillRect(0, 0, WIDTH, HEIGHT);
   ctx.fillStyle = "rgba(4, 9, 14, 0.78)";
   ctx.strokeStyle = rgba(getTheme().accentColor, 0.52);
-  roundRect(CENTER.x - 260, CENTER.y - 170, 520, 270, 8);
+  roundRect(CENTER.x - 300, CENTER.y - 230, 600, 430, 8);
   ctx.fill();
   ctx.stroke();
 
   ctx.shadowBlur = 36;
   ctx.shadowColor = "#ffffff";
   ctx.fillStyle = "#ffffff";
-  ctx.font = "900 62px Inter, system-ui, sans-serif";
+  ctx.font = "900 54px Inter, system-ui, sans-serif";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillText(isFinal ? "ACT 1 CLEARED" : "CORE BROKEN", CENTER.x, CENTER.y - 92);
+  ctx.fillText(isFinal ? "ACT 1 CLEARED" : "LEVEL COMPLETE", CENTER.x, CENTER.y - 170);
 
   ctx.shadowBlur = 0;
   ctx.fillStyle = "#b9f8ff";
-  ctx.font = "800 24px Inter, system-ui, sans-serif";
-  ctx.fillText(isFinal ? "Run complete" : "Level complete", CENTER.x, CENTER.y - 32);
+  ctx.font = "800 22px Inter, system-ui, sans-serif";
+  ctx.fillText(state.level.name, CENTER.x, CENTER.y - 122);
 
-  ctx.font = "700 18px Inter, system-ui, sans-serif";
   if (isFinal) {
-    ctx.fillText("Press SPACE to start a new run", CENTER.x, CENTER.y + 22);
-  } else {
-    ctx.fillText(`Next: ${nextLevel.name}`, CENTER.x, CENTER.y + 18);
-    ctx.fillText("Press SPACE to continue", CENTER.x, CENTER.y + 54);
+    drawActClearedStats();
+    ctx.fillStyle = "#baf5ff";
+    ctx.font = "800 18px Inter, system-ui, sans-serif";
+    ctx.fillText("Press SPACE to start new run", CENTER.x, CENTER.y + 160);
+    ctx.restore();
+    return;
   }
+
+  drawLevelCompleteStats(nextLevel);
+  drawRewardChoices();
+  ctx.restore();
+}
+
+function drawLevelCompleteStats(nextLevel) {
+  ctx.font = "700 15px Inter, system-ui, sans-serif";
+  const lines = [
+    ["Launches this level", state.launches],
+    ["Total launches", state.totalLaunches],
+    ["Shards earned this level", state.levelShardsEarned],
+    ["Best depth", "100%"],
+    ["Core", "destroyed"],
+    ["Next level", nextLevel.name],
+  ];
+  let y = CENTER.y - 86;
+  for (const [label, value] of lines) {
+    ctx.fillStyle = "#93aeb9";
+    ctx.textAlign = "left";
+    ctx.fillText(label, CENTER.x - 250, y);
+    ctx.fillStyle = "#eaffff";
+    ctx.textAlign = "right";
+    ctx.fillText(String(value), CENTER.x + 250, y);
+    y += 24;
+  }
+}
+
+function drawRewardChoices() {
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "900 18px Inter, system-ui, sans-serif";
+  ctx.fillText(
+    state.phase === "levelVictory"
+      ? "Core destroyed"
+      : state.phase === "nextLevelReady"
+        ? "Reward acquired"
+        : "Choose reward: 1 / 2 / 3",
+    CENTER.x,
+    CENTER.y + 70,
+  );
+
+  const cardY = CENTER.y + 100;
+  const cardW = 176;
+  const cardH = 86;
+  const gap = 14;
+  const startX = CENTER.x - cardW - gap;
+
+  state.rewardChoices.forEach((reward, index) => {
+    const x = startX + index * (cardW + gap);
+    const selected = state.selectedReward?.id === reward.id;
+    ctx.fillStyle = selected ? rgba(getTheme().accentColor, 0.22) : "rgba(9, 19, 27, 0.84)";
+    ctx.strokeStyle = selected ? "#ffffff" : rgba(getTheme().accentColor, 0.34);
+    roundRect(x, cardY, cardW, cardH, 8);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "900 14px Inter, system-ui, sans-serif";
+    ctx.fillText(`${index + 1}. ${reward.name}`, x + cardW / 2, cardY + 18);
+    ctx.fillStyle = "#b9dbe4";
+    ctx.font = "700 11px Inter, system-ui, sans-serif";
+    wrapText(reward.description, x + 14, cardY + 38, cardW - 28, 14);
+  });
+
+  if (state.phase === "nextLevelReady") {
+    ctx.fillStyle = "#baf5ff";
+    ctx.font = "900 15px Inter, system-ui, sans-serif";
+    ctx.fillText("Press SPACE for next level", CENTER.x, CENTER.y + 208);
+  }
+}
+
+function drawActClearedStats() {
+  ctx.font = "700 16px Inter, system-ui, sans-serif";
+  const lines = [
+    ["Total launches", state.totalLaunches],
+    ["Final shards", state.shards],
+    ["Power level", state.upgrades.power],
+    ["Speed level", state.upgrades.speed],
+    ["Start balls level", state.upgrades.balls],
+    ["Rewards collected", state.rewards.length],
+  ];
+  let y = CENTER.y - 72;
+  for (const [label, value] of lines) {
+    ctx.fillStyle = "#93aeb9";
+    ctx.textAlign = "left";
+    ctx.fillText(label, CENTER.x - 210, y);
+    ctx.fillStyle = "#eaffff";
+    ctx.textAlign = "right";
+    ctx.fillText(String(value), CENTER.x + 210, y);
+    y += 28;
+  }
+}
+
+function drawTransitionFade() {
+  if (state.transitionFade <= 0) return;
+  ctx.save();
+  ctx.fillStyle = `rgba(2, 5, 9, ${state.transitionFade * 0.76})`;
+  ctx.fillRect(0, 0, WIDTH, HEIGHT);
   ctx.restore();
 }
 
@@ -1215,7 +1489,7 @@ function getShakeOffset() {
   };
 }
 
-function getPointAtProgress(progress) {
+function getTrackPoint(progress) {
   const t = clamp(progress, 0, 1);
   const scaled = t * (state.track.length - 1);
   const index = Math.floor(scaled);
@@ -1230,13 +1504,54 @@ function getPointAtProgress(progress) {
   };
 }
 
-function getTangentAtProgress(progress) {
-  const before = getPointAtProgress(progress - 0.002);
-  const after = getPointAtProgress(progress + 0.002);
+function getPointAtProgress(progress) {
+  return getTrackPoint(progress);
+}
+
+function getTrackTangent(progress) {
+  const before = getTrackPoint(progress - 0.002);
+  const after = getTrackPoint(progress + 0.002);
   const dx = after.x - before.x;
   const dy = after.y - before.y;
   const length = Math.hypot(dx, dy) || 1;
   return { x: dx / length, y: dy / length };
+}
+
+function getTangentAtProgress(progress) {
+  return getTrackTangent(progress);
+}
+
+function getTrackNormal(progress) {
+  const tangent = getTrackTangent(progress);
+  return { x: -tangent.y, y: tangent.x };
+}
+
+function getBallRenderPosition(ball) {
+  const point = getTrackPoint(Math.min(ball.progress, 1));
+  const normal = getTrackNormal(ball.progress);
+  const fade = smoothstep(clamp(ball.progress / 0.045, 0, 1));
+  const offset = clamp(ball.laneOffset * fade + ball.spreadOffset, -MAX_LANE_OFFSET, MAX_LANE_OFFSET);
+  return {
+    x: point.x + normal.x * offset,
+    y: point.y + normal.y * offset,
+  };
+}
+
+function getStartLaneOffsets(count) {
+  if (count <= 1) return [0];
+  if (count === 2) return [-0.18, 0.18].map((value) => value * TRACK_WIDTH);
+  if (count === 3) return [-0.25, 0, 0.25].map((value) => value * TRACK_WIDTH);
+
+  const offsets = [];
+  for (let i = 0; i < count; i += 1) {
+    const t = i / (count - 1);
+    offsets.push(lerp(-0.3, 0.3, t) * TRACK_WIDTH);
+  }
+  return offsets.map((value) => clamp(value, -MAX_LANE_OFFSET, MAX_LANE_OFFSET));
+}
+
+function getSpreadLaneOffsets(count) {
+  return getStartLaneOffsets(count).map((value) => value * 0.72);
 }
 
 function pickBallColor(multiplier, index) {
@@ -1251,15 +1566,33 @@ function pickBallColor(multiplier, index) {
 }
 
 function getBallPower() {
-  return Math.round(BASE_BALL_POWER * (1 + state.upgrades.power * 0.1));
+  const rewardMultiplier = hasReward("temperedCore") ? 1.15 : 1;
+  return Math.round(BASE_BALL_POWER * rewardMultiplier * (1 + state.upgrades.power * 0.1));
 }
 
 function getBallSpeed() {
-  return BASE_BALL_SPEED * (1 + state.upgrades.speed * 0.05);
+  const rewardMultiplier = hasReward("quickLaunch") ? 1.08 : 1;
+  return BASE_BALL_SPEED * rewardMultiplier * (1 + state.upgrades.speed * 0.05);
 }
 
 function getStartBalls() {
-  return 1 + state.upgrades.balls;
+  return 1 + state.upgrades.balls + (hasReward("extraMarble") ? 1 : 0);
+}
+
+function getGlassDamage(power) {
+  if (!hasReward("deepCrack") || state.levelFirstHitUsed) return power;
+  state.levelFirstHitUsed = true;
+  return power * 1.5;
+}
+
+function getEffectiveMultiplierValue(multiplier) {
+  if (!hasReward("multiplierPolish") || state.levelMultiplierPolishUsed) return multiplier.value;
+  state.levelMultiplierPolishUsed = true;
+  return multiplier.value + 1;
+}
+
+function hasReward(id) {
+  return state.rewards.some((reward) => reward.id === id);
 }
 
 function getUpgradeCost(type) {
@@ -1285,6 +1618,7 @@ function updateHud() {
   hud.powerUpgrade.textContent = `${state.upgrades.power} / ${getUpgradeCost("power")}`;
   hud.speedUpgrade.textContent = `${state.upgrades.speed} / ${getUpgradeCost("speed")}`;
   hud.ballsUpgrade.textContent = `${state.upgrades.balls} / ${getUpgradeCost("balls")}`;
+  hud.rewardCount.textContent = state.rewards.length;
   hud.brokenGlass.textContent = `${broken} / ${state.segments.length}`;
   hud.coreHp.textContent = `${Math.ceil(state.core.hp)} / ${state.core.maxHp}`;
   hud.coreDistance.textContent = `${formatPercent(state.bestDepth)}`;
@@ -1313,6 +1647,29 @@ function roundRect(x, y, w, h, radius) {
   ctx.arcTo(x, y + h, x, y, radius);
   ctx.arcTo(x, y, x + w, y, radius);
   ctx.closePath();
+}
+
+function wrapText(text, x, y, maxWidth, lineHeight) {
+  const words = text.split(" ");
+  let line = "";
+  let lineY = y;
+
+  for (const word of words) {
+    const test = line ? `${line} ${word}` : word;
+    if (ctx.measureText(test).width > maxWidth && line) {
+      ctx.textAlign = "left";
+      ctx.fillText(line, x, lineY);
+      line = word;
+      lineY += lineHeight;
+    } else {
+      line = test;
+    }
+  }
+
+  if (line) {
+    ctx.textAlign = "left";
+    ctx.fillText(line, x, lineY);
+  }
 }
 
 function rgba(hex, alpha) {

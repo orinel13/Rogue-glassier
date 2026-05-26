@@ -11,21 +11,27 @@ const SOUND_NAMES = [
 ];
 
 const THROTTLE_MS = {
-  hit: 45,
-  break: 70,
-  coreHit: 90,
+  hit: 35,
+  break: 45,
+  coreHit: 80,
 };
 
 export class AudioManager {
   constructor() {
     this.context = null;
     this.masterGain = null;
-    this.ambientGain = null;
+    this.sfxGain = null;
+    this.musicGain = null;
     this.buffers = new Map();
     this.lastPlayed = new Map();
     this.muted = false;
     this.unlocked = false;
-    this.ambientNodes = [];
+    this.musicEnabled = true;
+    this.sfxEnabled = true;
+    this.musicTimer = null;
+    this.nextBassAt = 0;
+    this.nextBellAt = 0;
+    this.scale = [196, 233.08, 261.63, 293.66, 349.23, 392, 466.16, 523.25];
     this.loadPromise = this.loadFiles();
   }
 
@@ -41,6 +47,7 @@ export class AudioManager {
 
         const data = await response.arrayBuffer();
         const context = await this.ensureContext();
+        if (!context) return;
         const buffer = await context.decodeAudioData(data);
         this.buffers.set(name, buffer);
         return;
@@ -57,7 +64,7 @@ export class AudioManager {
       await this.context.resume();
     }
     this.unlocked = true;
-    this.startAmbient();
+    this.startMusic();
   }
 
   async ensureContext() {
@@ -67,13 +74,18 @@ export class AudioManager {
     if (!AudioContextClass) return null;
 
     this.context = new AudioContextClass();
+
     this.masterGain = this.context.createGain();
     this.masterGain.gain.value = this.muted ? 0 : 0.72;
     this.masterGain.connect(this.context.destination);
 
-    this.ambientGain = this.context.createGain();
-    this.ambientGain.gain.value = 0.055;
-    this.ambientGain.connect(this.masterGain);
+    this.sfxGain = this.context.createGain();
+    this.sfxGain.gain.value = 0.78;
+    this.sfxGain.connect(this.masterGain);
+
+    this.musicGain = this.context.createGain();
+    this.musicGain.gain.value = 0.075;
+    this.musicGain.connect(this.masterGain);
 
     return this.context;
   }
@@ -81,13 +93,50 @@ export class AudioManager {
   toggleMute() {
     this.muted = !this.muted;
     if (this.masterGain) {
-      this.masterGain.gain.setTargetAtTime(this.muted ? 0 : 0.72, this.context.currentTime, 0.03);
+      this.masterGain.gain.setTargetAtTime(this.muted ? 0 : 0.72, this.context.currentTime, 0.04);
     }
     return this.muted;
   }
 
+  startMusic() {
+    if (!this.context || this.musicTimer || !this.musicEnabled) return;
+
+    const now = this.context.currentTime;
+    this.nextBassAt = now + 0.3;
+    this.nextBellAt = now + 0.75;
+    this.musicTimer = window.setInterval(() => this.scheduleAmbientLoop(), 180);
+  }
+
+  stopMusic() {
+    if (this.musicTimer) {
+      window.clearInterval(this.musicTimer);
+      this.musicTimer = null;
+    }
+  }
+
+  scheduleAmbientLoop() {
+    if (!this.context || this.muted || !this.musicEnabled) return;
+
+    const now = this.context.currentTime;
+    const lookAhead = 0.75;
+
+    while (this.nextBassAt < now + lookAhead) {
+      this.musicBassPulse(this.nextBassAt);
+      this.nextBassAt += 1.25 + Math.random() * 0.8;
+    }
+
+    while (this.nextBellAt < now + lookAhead) {
+      const note = this.scale[Math.floor(Math.random() * this.scale.length)] * (Math.random() < 0.35 ? 2 : 1);
+      this.musicBell(note, this.nextBellAt, 0.075 + Math.random() * 0.035);
+      if (Math.random() < 0.32) {
+        this.musicBell(note * 1.5, this.nextBellAt + 0.16, 0.045);
+      }
+      this.nextBellAt += 0.8 + Math.random() * 1.7;
+    }
+  }
+
   async play(name) {
-    if (this.muted) return;
+    if (this.muted || !this.sfxEnabled) return;
 
     const now = performance.now();
     const throttle = THROTTLE_MS[name] || 0;
@@ -111,58 +160,86 @@ export class AudioManager {
     const source = this.context.createBufferSource();
     const gain = this.context.createGain();
     source.buffer = buffer;
-    gain.gain.value = name === "victory" || name === "multiplier" ? 0.9 : 0.62;
+    gain.gain.value = this.getSfxVolume(name);
     source.connect(gain);
-    gain.connect(this.masterGain);
+    gain.connect(this.sfxGain);
     source.start();
   }
 
-  startAmbient() {
-    if (!this.context || this.ambientNodes.length > 0) return;
-
-    const base = this.context.createOscillator();
-    const shimmer = this.context.createOscillator();
-    const lfo = this.context.createOscillator();
-    const lfoGain = this.context.createGain();
-    const filter = this.context.createBiquadFilter();
-
-    base.type = "sine";
-    base.frequency.value = 55;
-    shimmer.type = "triangle";
-    shimmer.frequency.value = 110.4;
-    lfo.type = "sine";
-    lfo.frequency.value = 0.08;
-    lfoGain.gain.value = 180;
-    filter.type = "lowpass";
-    filter.frequency.value = 640;
-    filter.Q.value = 4;
-
-    lfo.connect(lfoGain);
-    lfoGain.connect(filter.frequency);
-    base.connect(filter);
-    shimmer.connect(filter);
-    filter.connect(this.ambientGain);
-
-    base.start();
-    shimmer.start();
-    lfo.start();
-    this.ambientNodes.push(base, shimmer, lfo, filter, lfoGain);
+  getSfxVolume(name) {
+    const volumes = {
+      hit: 0.18,
+      break: 0.34,
+      multiplier: 0.42,
+      victory: 0.46,
+      denied: 0.12,
+      launch: 0.28,
+      upgrade: 0.26,
+      coreHit: 0.36,
+      uiClick: 0.11,
+    };
+    return volumes[name] || 0.24;
   }
 
   playSynth(name) {
     const map = {
-      launch: () => this.whoosh(0.18, 260, 740),
-      hit: () => this.noiseBurst(0.045, 900, 0.18),
-      break: () => this.noiseBurst(0.16, 2400, 0.34),
-      multiplier: () => this.arpeggio([520, 690, 920, 1240], 0.07, 0.28),
-      upgrade: () => this.arpeggio([420, 630, 840], 0.06, 0.2),
-      coreHit: () => this.thump(0.22, 82),
-      victory: () => this.arpeggio([330, 495, 660, 990, 1320], 0.11, 0.44),
-      uiClick: () => this.tone(620, 0.035, 0.12, "square"),
-      denied: () => this.arpeggio([210, 170], 0.08, 0.18),
+      launch: () => this.whoosh(0.17, 260, 720, 0.16),
+      hit: () => this.noiseBurst(0.04, 1100, 0.1),
+      break: () => this.noiseBurst(0.14, 2600, 0.22),
+      multiplier: () => this.arpeggio([523.25, 659.25, 783.99, 1046.5], 0.06, 0.18),
+      upgrade: () => this.arpeggio([392, 587.33, 783.99], 0.06, 0.14),
+      coreHit: () => this.thump(0.2, 78, 0.22),
+      victory: () => this.arpeggio([261.63, 392, 523.25, 659.25, 783.99], 0.1, 0.22),
+      uiClick: () => this.tone(620, 0.035, 0.06, "square"),
+      denied: () => this.arpeggio([196, 164.81], 0.07, 0.07),
     };
 
     map[name]?.();
+  }
+
+  musicBassPulse(start) {
+    const osc = this.context.createOscillator();
+    const gain = this.context.createGain();
+    const filter = this.context.createBiquadFilter();
+
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(73.42, start);
+    osc.frequency.exponentialRampToValueAtTime(49, start + 0.55);
+    filter.type = "lowpass";
+    filter.frequency.value = 180;
+    filter.Q.value = 0.8;
+
+    gain.gain.setValueAtTime(0.0001, start);
+    gain.gain.linearRampToValueAtTime(0.16, start + 0.08);
+    gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.72);
+
+    osc.connect(filter);
+    filter.connect(gain);
+    gain.connect(this.musicGain);
+    osc.start(start);
+    osc.stop(start + 0.8);
+  }
+
+  musicBell(frequency, start, volume) {
+    const osc = this.context.createOscillator();
+    const gain = this.context.createGain();
+    const filter = this.context.createBiquadFilter();
+
+    osc.type = "triangle";
+    osc.frequency.value = frequency;
+    filter.type = "lowpass";
+    filter.frequency.value = 1350;
+    filter.Q.value = 2.2;
+
+    gain.gain.setValueAtTime(0.0001, start);
+    gain.gain.linearRampToValueAtTime(volume, start + 0.045);
+    gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.9);
+
+    osc.connect(filter);
+    filter.connect(gain);
+    gain.connect(this.musicGain);
+    osc.start(start);
+    osc.stop(start + 1.0);
   }
 
   tone(frequency, duration, volume, type = "sine", delay = 0) {
@@ -172,48 +249,52 @@ export class AudioManager {
     osc.type = type;
     osc.frequency.value = frequency;
     gain.gain.setValueAtTime(0.0001, start);
-    gain.gain.exponentialRampToValueAtTime(volume, start + 0.008);
+    gain.gain.exponentialRampToValueAtTime(volume, start + 0.01);
     gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
     osc.connect(gain);
-    gain.connect(this.masterGain);
+    gain.connect(this.sfxGain);
     osc.start(start);
     osc.stop(start + duration + 0.03);
   }
 
-  whoosh(duration, from, to) {
+  whoosh(duration, from, to, volume) {
     const osc = this.context.createOscillator();
     const gain = this.context.createGain();
+    const filter = this.context.createBiquadFilter();
     const start = this.context.currentTime;
     osc.type = "sawtooth";
     osc.frequency.setValueAtTime(from, start);
     osc.frequency.exponentialRampToValueAtTime(to, start + duration);
+    filter.type = "lowpass";
+    filter.frequency.value = 1200;
     gain.gain.setValueAtTime(0.0001, start);
-    gain.gain.exponentialRampToValueAtTime(0.22, start + 0.025);
+    gain.gain.exponentialRampToValueAtTime(volume, start + 0.025);
     gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
-    osc.connect(gain);
-    gain.connect(this.masterGain);
+    osc.connect(filter);
+    filter.connect(gain);
+    gain.connect(this.sfxGain);
     osc.start(start);
     osc.stop(start + duration + 0.04);
   }
 
-  thump(duration, frequency) {
+  thump(duration, frequency, volume) {
     const osc = this.context.createOscillator();
     const gain = this.context.createGain();
     const start = this.context.currentTime;
     osc.type = "sine";
     osc.frequency.setValueAtTime(frequency, start);
     osc.frequency.exponentialRampToValueAtTime(34, start + duration);
-    gain.gain.setValueAtTime(0.36, start);
+    gain.gain.setValueAtTime(volume, start);
     gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
     osc.connect(gain);
-    gain.connect(this.masterGain);
+    gain.connect(this.sfxGain);
     osc.start(start);
     osc.stop(start + duration + 0.04);
   }
 
   arpeggio(notes, step, volume) {
     notes.forEach((note, index) => {
-      this.tone(note, step * 1.8, volume, "triangle", index * step);
+      this.tone(note, step * 1.75, volume, "triangle", index * step);
     });
   }
 
@@ -236,7 +317,7 @@ export class AudioManager {
     source.buffer = buffer;
     source.connect(filter);
     filter.connect(gain);
-    gain.connect(this.masterGain);
+    gain.connect(this.sfxGain);
     source.start();
   }
 }
