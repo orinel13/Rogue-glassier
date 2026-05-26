@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Rogue Glassier</title>
+  </head>
+  <body>
+    <div class="app">
+      <aside class="hud" aria-label="Game status">
+        <div class="brand">Rogue Glassier</div>
+        <div class="stat"><span>Launches</span><strong id="launches">0</strong></div>
+        <div class="stat"><span>Active balls</span><strong id="activeBalls">0</strong></div>
+        <div class="stat"><span>Broken glass</span><strong id="brokenGlass">0 / 0</strong></div>
+        <div class="stat"><span>Core distance</span><strong id="coreDistance">0%</strong></div>
+        <div class="hint">Press SPACE to launch</div>
+      </aside>
+
+      <main class="stage-wrap">
+        <canvas id="gameCanvas" width="920" height="920" aria-label="Rogue Glassier game canvas"></canvas>
+      </main>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
