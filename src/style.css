@@ -23,18 +23,28 @@ body {
 
 .app {
   display: grid;
-  grid-template-columns: 260px minmax(0, 1fr);
-  min-height: 100vh;
+  grid-template-columns: 300px minmax(520px, 1fr) 280px;
+  height: 100vh;
+  min-height: 0;
 }
 
 .hud {
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  padding: 24px 20px;
-  border-right: 1px solid rgba(132, 220, 255, 0.16);
+  gap: 10px;
+  min-height: 0;
+  padding: 20px 22px;
   background: rgba(5, 9, 15, 0.76);
+}
+
+.hud-left {
+  border-right: 1px solid rgba(132, 220, 255, 0.16);
   box-shadow: 18px 0 50px rgba(0, 0, 0, 0.24);
+}
+
+.hud-right {
+  border-left: 1px solid rgba(132, 220, 255, 0.16);
+  box-shadow: -18px 0 50px rgba(0, 0, 0, 0.24);
 }
 
 .brand {
@@ -50,8 +60,8 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  min-height: 34px;
-  padding-bottom: 9px;
+  min-height: 30px;
+  padding-bottom: 7px;
   border-bottom: 1px solid rgba(132, 220, 255, 0.1);
 }
 
@@ -64,7 +74,7 @@ body {
   color: #eaffff;
   font-size: 17px;
   font-variant-numeric: tabular-nums;
-  max-width: 112px;
+  max-width: 150px;
   overflow: hidden;
   text-overflow: ellipsis;
   text-align: right;
@@ -87,13 +97,15 @@ body {
   display: grid;
   place-items: center;
   min-width: 0;
-  padding: 18px;
+  min-height: 0;
+  padding: 16px 18px;
 }
 
 canvas {
   display: block;
-  width: min(92vh, calc(100vw - 320px));
+  width: min(calc(100vh - 32px), calc(100vw - 640px));
   max-width: 920px;
+  max-height: calc(100vh - 32px);
   aspect-ratio: 1;
   border: 1px solid rgba(125, 235, 255, 0.14);
   border-radius: 8px;
@@ -103,23 +115,27 @@ canvas {
     0 28px 90px rgba(0, 0, 0, 0.54);
 }
 
-@media (max-width: 760px) {
+@media (max-width: 1180px) {
   body {
     overflow: auto;
   }
 
   .app {
     grid-template-columns: 1fr;
-    grid-template-rows: auto 1fr;
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    height: auto;
+    min-height: 100vh;
   }
 
   .hud {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 10px 14px;
     padding: 14px;
     border-right: 0;
+    border-left: 0;
     border-bottom: 1px solid rgba(132, 220, 255, 0.16);
+    box-shadow: none;
   }
 
   .brand,
@@ -134,6 +150,13 @@ canvas {
   }
 
   canvas {
-    width: min(94vw, 92vh);
+    width: min(94vw, 82vh);
+    max-height: 82vh;
+  }
+}
+
+@media (max-width: 760px) {
+  .hud {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
