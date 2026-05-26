@@ -147,6 +147,8 @@ const TUTORIAL_LEVEL = {
   id: "glassSpiral",
   name: "Glass Spiral",
   trackType: "spiral",
+  archetype: "Stable",
+  shortPitch: "Balanced opening chamber",
   difficulty: "normal",
   modifiers: [],
   turns: 3.65,
@@ -174,6 +176,8 @@ const LEVEL_POOL = [
     id: "serpentCut",
     name: "Serpent Cut",
     trackType: "snake",
+    archetype: "Stable",
+    shortPitch: "Cracked opening, stronger center",
     difficulty: "normal",
     modifiers: ["crackedStart"],
     segments: 86,
@@ -195,6 +199,8 @@ const LEVEL_POOL = [
     id: "ringChamber",
     name: "Ring Chamber",
     trackType: "rings",
+    archetype: "Elite",
+    shortPitch: "Dense middle, strong scaling",
     difficulty: "risky",
     modifiers: ["denseMiddle"],
     segments: 78,
@@ -216,6 +222,8 @@ const LEVEL_POOL = [
     id: "cloverTrap",
     name: "Clover Trap",
     trackType: "clover",
+    archetype: "Volatile",
+    shortPitch: "Power loss matters here",
     difficulty: "risky",
     modifiers: ["fragileBalls"],
     segments: 90,
@@ -237,6 +245,8 @@ const LEVEL_POOL = [
     id: "zigzagCoil",
     name: "Zigzag Coil",
     trackType: "zigzagCoil",
+    archetype: "Rich",
+    shortPitch: "Fast breaks, tougher core",
     difficulty: "normal",
     modifiers: ["brittleGlass"],
     segments: 92,
@@ -258,6 +268,8 @@ const LEVEL_POOL = [
     id: "greedySpiral",
     name: "Greedy Spiral",
     trackType: "spiral",
+    archetype: "Greedy",
+    shortPitch: "Multiplier-heavy, glass fights back",
     difficulty: "risky",
     modifiers: ["multiplierRush"],
     turns: 3.2,
@@ -280,6 +292,8 @@ const LEVEL_POOL = [
     id: "richSerpent",
     name: "Rich Serpent",
     trackType: "snake",
+    archetype: "Rich",
+    shortPitch: "More shards, stronger glass",
     difficulty: "risky",
     modifiers: ["richChamber"],
     segments: 92,
@@ -301,6 +315,8 @@ const LEVEL_POOL = [
     id: "armoredRings",
     name: "Armored Rings",
     trackType: "rings",
+    archetype: "Elite",
+    shortPitch: "Dense route, armored core",
     difficulty: "elite",
     modifiers: ["armoredCore", "denseMiddle"],
     segments: 84,
@@ -322,6 +338,8 @@ const LEVEL_POOL = [
     id: "regrowthClover",
     name: "Regrowth Clover",
     trackType: "clover",
+    archetype: "Elite",
+    shortPitch: "Damaged glass repairs over time",
     difficulty: "elite",
     modifiers: ["glassRegen", "richChamber"],
     segments: 88,
@@ -343,6 +361,8 @@ const LEVEL_POOL = [
     id: "brokenPassage",
     name: "Broken Passage",
     trackType: "brokenSpiral",
+    archetype: "Volatile",
+    shortPitch: "Easy start, punishing finish",
     difficulty: "normal",
     modifiers: ["crackedStart"],
     turns: 3.05,
@@ -367,6 +387,8 @@ const BOSS_LEVEL = {
   id: "brokenCoreBoss",
   name: "Broken Core",
   trackType: "brokenSpiral",
+  archetype: "Core",
+  shortPitch: "Boss chamber",
   difficulty: "boss",
   modifiers: ["armoredCore", "denseMiddle"],
   turns: 3.25,
@@ -394,7 +416,11 @@ const state = {
   level: TUTORIAL_LEVEL,
   previousLevelId: null,
   nextChoices: [],
+  nextChoiceNodes: [],
   selectedNextLevel: null,
+  selectedNextNodeId: null,
+  mapOverlayOpen: false,
+  actMap: [],
   track: [],
   segments: [],
   multipliers: [],
@@ -438,6 +464,21 @@ function init() {
       return;
     }
 
+    if (event.code === "Tab") {
+      event.preventDefault();
+      toggleMapOverlay();
+      return;
+    }
+
+    if (event.code === "Escape") {
+      if (state.mapOverlayOpen) {
+        event.preventDefault();
+        state.mapOverlayOpen = false;
+        audio.play("uiClick");
+      }
+      return;
+    }
+
     if (event.key === "1") handleNumberKey(0, "power");
     if (event.key === "2") handleNumberKey(1, "speed");
     if (event.key === "3") handleNumberKey(2, "balls");
@@ -448,6 +489,8 @@ function init() {
 }
 
 function handleSpace() {
+  if (state.mapOverlayOpen) return;
+
   if (state.phase === "nextLevelReady") {
     audio.play("uiClick");
     startLevel(state.selectedNextLevel, state.room + 1);
@@ -470,7 +513,18 @@ function handleSpace() {
   }
 }
 
+function toggleMapOverlay() {
+  if (state.phase === "running") {
+    audio.play("denied");
+    return;
+  }
+  state.mapOverlayOpen = !state.mapOverlayOpen;
+  audio.play("uiClick");
+}
+
 function handleNumberKey(index, upgradeType) {
+  if (state.mapOverlayOpen) return;
+
   if (state.phase === "rewardChoice") {
     chooseReward(index);
     return;
@@ -494,7 +548,11 @@ function resetRun() {
   state.selectedReward = null;
   state.previousLevelId = null;
   state.nextChoices = [];
+  state.nextChoiceNodes = [];
   state.selectedNextLevel = null;
+  state.selectedNextNodeId = null;
+  state.mapOverlayOpen = false;
+  state.actMap = createInitialActMap();
   startLevel(TUTORIAL_LEVEL, 1);
 }
 
@@ -517,7 +575,9 @@ function startLevel(levelTemplate, room) {
   state.rewardChoices = [];
   state.selectedReward = null;
   state.nextChoices = [];
+  state.nextChoiceNodes = [];
   state.selectedNextLevel = null;
+  state.selectedNextNodeId = null;
   state.levelVictoryTimer = 0;
   state.transitionFade = 1;
   state.core = {
@@ -525,6 +585,7 @@ function startLevel(levelTemplate, room) {
     maxHp: state.level.coreHp,
     broken: false,
   };
+  updateActMapForEnteredLevel(state.level, room);
   state.waveStats = null;
   state.waveReport = null;
   state.coreFlash = 0;
@@ -1129,8 +1190,10 @@ function chooseReward(index) {
   state.selectedReward = reward;
   state.rewards.push(reward);
   state.nextChoices = createNextChamberChoices();
+  syncAvailableMapNodes();
   if (state.nextChoices.length === 1 && state.nextChoices[0].difficulty === "boss") {
     state.selectedNextLevel = state.nextChoices[0];
+    state.selectedNextNodeId = state.nextChoiceNodes[0]?.id || null;
     state.phase = "nextLevelReady";
   } else {
     state.phase = "nextChamberChoice";
@@ -1175,9 +1238,100 @@ function chooseNextChamber(index) {
   }
 
   state.selectedNextLevel = level;
+  state.selectedNextNodeId = state.nextChoiceNodes[index]?.id || null;
+  for (const row of state.actMap) {
+    for (const node of row) node.selected = node.id === state.selectedNextNodeId;
+  }
   state.phase = "nextLevelReady";
   audio.play("uiClick");
   addFloatingText(CENTER.x, 100, `${level.name} selected`, getTheme().accentColor, 0.95);
+}
+
+function createInitialActMap() {
+  const rows = [];
+  rows.push([createMapNode(TUTORIAL_LEVEL, 1, 0, { discovered: true, current: true })]);
+  for (let room = 2; room <= ACT_ROOMS - 1; room += 1) {
+    rows.push(Array.from({ length: 3 }, (_, lane) => createMapPlaceholder(room, lane)));
+  }
+  rows.push([createMapNode(BOSS_LEVEL, ACT_ROOMS, 1, { discovered: true, isBoss: true })]);
+  return rows;
+}
+
+function createMapNode(template, room, lane, flags = {}) {
+  return {
+    id: `room-${room}-${lane}-${template.id}`,
+    room,
+    lane,
+    template,
+    name: template.name,
+    difficulty: template.difficulty,
+    archetype: template.archetype,
+    trackType: template.trackType,
+    isBoss: template.difficulty === "boss",
+    discovered: false,
+    cleared: false,
+    current: false,
+    available: false,
+    selected: false,
+    ...flags,
+  };
+}
+
+function createMapPlaceholder(room, lane) {
+  return {
+    id: `room-${room}-${lane}-unknown`,
+    room,
+    lane,
+    template: null,
+    name: "Unknown",
+    difficulty: room >= 4 ? "risky" : "normal",
+    archetype: "?",
+    trackType: "?",
+    isBoss: false,
+    discovered: false,
+    cleared: false,
+    current: false,
+    available: false,
+    selected: false,
+  };
+}
+
+function updateActMapForEnteredLevel(level, room) {
+  for (const row of state.actMap) {
+    for (const node of row) {
+      node.current = false;
+      node.available = false;
+      node.selected = false;
+      if (node.room < room) node.cleared = true;
+    }
+  }
+
+  const row = state.actMap[room - 1];
+  let node = row.find((item) => item.template?.id === level.id) || row[0];
+  Object.assign(node, createMapNode(level, room, node.lane, { discovered: true, current: true }));
+}
+
+function syncAvailableMapNodes() {
+  for (const row of state.actMap) {
+    for (const node of row) {
+      node.available = false;
+      node.selected = false;
+    }
+  }
+
+  const nextRoom = state.room + 1;
+  const row = state.actMap[nextRoom - 1];
+  if (!row) return;
+
+  state.nextChoiceNodes = state.nextChoices.map((level, index) => {
+    const node = row[index] || row[0];
+    Object.assign(node, createMapNode(level, nextRoom, node.lane, {
+      discovered: true,
+      available: true,
+      isBoss: level.difficulty === "boss",
+    }));
+    return node;
+  });
 }
 
 function toggleMute() {
@@ -1284,6 +1438,7 @@ function draw() {
 
   drawWaveReport();
   drawWinOverlay();
+  drawActMapOverlay();
   drawTransitionFade();
 }
 
@@ -1727,7 +1882,7 @@ function drawNextChamberChoices(panel) {
     panel.y + 252,
   );
 
-  const cards = getCardRects(panel, state.nextChoices.length, panel.y + 274, 122);
+  const cards = getCardRects(panel, state.nextChoices.length, panel.y + 274, 170);
   state.nextChoices.forEach((level, index) => {
     drawChamberCard(ctx, level, cards[index], index, state.selectedNextLevel?.id === level.id);
   });
@@ -1795,6 +1950,131 @@ function drawRewardCard(context, reward, rect, index, selected) {
   wrapText(context, reward.description, rect.x + 14, rect.y + 44, rect.w - 28, 15, 3);
 }
 
+function drawTrackPreview(context, rect, levelTemplate) {
+  const level = { ...levelTemplate, turns: levelTemplate.turns };
+  const points = generateTrack(level);
+  const fitted = fitPointsToRect(points, rect, 10);
+
+  context.save();
+  context.fillStyle = "rgba(1, 7, 11, 0.62)";
+  roundRect(rect.x, rect.y, rect.w, rect.h, 6);
+  context.fill();
+
+  context.lineCap = "round";
+  context.lineJoin = "round";
+  context.strokeStyle = rgba(level.theme.glassTint, 0.28);
+  context.lineWidth = 7;
+  context.beginPath();
+  fitted.forEach((point, index) => {
+    if (index === 0) context.moveTo(point.x, point.y);
+    else context.lineTo(point.x, point.y);
+  });
+  context.stroke();
+
+  context.strokeStyle = rgba(level.theme.glassTint, 0.92);
+  context.lineWidth = 2.4;
+  context.beginPath();
+  fitted.forEach((point, index) => {
+    if (index === 0) context.moveTo(point.x, point.y);
+    else context.lineTo(point.x, point.y);
+  });
+  context.stroke();
+
+  for (const multiplier of level.multipliers) {
+    const point = fitted[Math.min(fitted.length - 1, Math.max(0, Math.round(multiplier.progress * (fitted.length - 1))))];
+    drawMiniMultiplier(context, point.x, point.y, multiplier.value);
+  }
+
+  const start = fitted[0];
+  const core = fitted[fitted.length - 1];
+  drawMiniStartAndCore(context, start.x, start.y, core.x, core.y);
+  drawTrackIcon(context, level.trackType, rect.x + rect.w - 27, rect.y + 18, 14, level.theme.accentColor);
+  context.restore();
+}
+
+function getTrackPreviewBounds(points) {
+  return points.reduce(
+    (bounds, point) => ({
+      minX: Math.min(bounds.minX, point.x),
+      maxX: Math.max(bounds.maxX, point.x),
+      minY: Math.min(bounds.minY, point.y),
+      maxY: Math.max(bounds.maxY, point.y),
+    }),
+    { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity },
+  );
+}
+
+function fitPointsToRect(points, rect, padding) {
+  const bounds = getTrackPreviewBounds(points);
+  const sourceW = Math.max(1, bounds.maxX - bounds.minX);
+  const sourceH = Math.max(1, bounds.maxY - bounds.minY);
+  const scale = Math.min((rect.w - padding * 2) / sourceW, (rect.h - padding * 2) / sourceH);
+  const offsetX = rect.x + rect.w / 2 - ((bounds.minX + bounds.maxX) / 2) * scale;
+  const offsetY = rect.y + rect.h / 2 - ((bounds.minY + bounds.maxY) / 2) * scale;
+  return points.map((point) => ({
+    x: point.x * scale + offsetX,
+    y: point.y * scale + offsetY,
+  }));
+}
+
+function drawMiniMultiplier(context, x, y, value) {
+  context.save();
+  context.fillStyle = value === 1 ? "#80ffd4" : "#fff37a";
+  context.shadowBlur = 6;
+  context.shadowColor = context.fillStyle;
+  context.beginPath();
+  context.arc(x, y, 4.3, 0, TAU);
+  context.fill();
+  context.shadowBlur = 0;
+  context.fillStyle = "#071016";
+  context.font = "800 7px Inter, system-ui, sans-serif";
+  context.textAlign = "center";
+  context.textBaseline = "middle";
+  context.fillText(String(value), x, y + 0.2);
+  context.restore();
+}
+
+function drawMiniStartAndCore(context, startX, startY, coreX, coreY) {
+  context.save();
+  context.strokeStyle = "#baf5ff";
+  context.lineWidth = 1.6;
+  context.beginPath();
+  context.arc(startX, startY, 5.8, 0, TAU);
+  context.stroke();
+  context.fillStyle = "#ffffff";
+  context.beginPath();
+  context.arc(coreX, coreY, 6.2, 0, TAU);
+  context.fill();
+  context.fillStyle = "#071016";
+  context.beginPath();
+  context.arc(coreX, coreY, 2.7, 0, TAU);
+  context.fill();
+  context.restore();
+}
+
+function drawBadge(context, text, x, y, w, h, color) {
+  context.fillStyle = rgba(color, 0.22);
+  context.strokeStyle = rgba(color, 0.5);
+  roundRect(x, y, w, h, 6);
+  context.fill();
+  context.stroke();
+  context.fillStyle = "#eaffff";
+  context.font = "900 10px Inter, system-ui, sans-serif";
+  context.textAlign = "center";
+  context.textBaseline = "middle";
+  context.fillText(text, x + w / 2, y + h / 2 + 0.5);
+}
+
+function getDifficultyColor(difficulty) {
+  return {
+    safe: "#9fffd5",
+    normal: "#baf5ff",
+    risky: "#fff37a",
+    elite: "#ffb8f2",
+    boss: "#ffffff",
+  }[difficulty] || "#baf5ff";
+}
+
 function drawChamberCard(context, level, rect, index, selected) {
   const difficulty = DIFFICULTY[level.difficulty];
   context.fillStyle = selected ? rgba(level.theme.accentColor, 0.24) : "rgba(9, 19, 27, 0.88)";
@@ -1805,15 +2085,36 @@ function drawChamberCard(context, level, rect, index, selected) {
 
   context.textAlign = "left";
   context.fillStyle = "#ffffff";
-  context.font = "900 14px Inter, system-ui, sans-serif";
-  context.fillText(`${index + 1}. ${level.name}`, rect.x + 14, rect.y + 22);
-  context.fillStyle = "#baf5ff";
-  context.font = "800 12px Inter, system-ui, sans-serif";
-  context.fillText(`${difficulty.label} chamber`, rect.x + 14, rect.y + 42);
+  context.font = "900 15px Inter, system-ui, sans-serif";
+  context.fillText(`${index + 1}. ${level.name}`, rect.x + 14, rect.y + 20);
+
+  drawBadge(context, level.archetype, rect.x + rect.w - 76, rect.y + 10, 62, 20, level.theme.accentColor);
+  const previewRect = {
+    x: rect.x + 14,
+    y: rect.y + 34,
+    w: rect.w - 28,
+    h: Math.max(48, rect.h * 0.38),
+  };
+  drawTrackPreview(context, previewRect, level);
+
+  context.fillStyle = getDifficultyColor(level.difficulty);
+  context.font = "900 12px Inter, system-ui, sans-serif";
+  context.textAlign = "left";
+  context.fillText(`${difficulty.label} chamber`, rect.x + 14, previewRect.y + previewRect.h + 18);
+
   context.fillStyle = "#b9dbe4";
   context.font = "700 11px Inter, system-ui, sans-serif";
   const mods = getModifierNames(level).join(", ") || "None";
-  wrapText(context, `Track: ${level.trackType}. Mods: ${mods}. Reward: +${Math.round((difficulty.shardMultiplier - 1) * 100)}% shards. ${getDangerText(level)}`, rect.x + 14, rect.y + 62, rect.w - 28, 14, 4);
+  const reward = Math.round((difficulty.shardMultiplier - 1) * 100);
+  wrapText(
+    context,
+    `${level.shortPitch}. Track: ${level.trackType}. Mods: ${mods}. Reward: ${reward >= 0 ? "+" : ""}${reward}% shards.`,
+    rect.x + 14,
+    previewRect.y + previewRect.h + 36,
+    rect.w - 28,
+    14,
+    4,
+  );
 }
 
 function drawTransitionFade() {
@@ -1822,6 +2123,173 @@ function drawTransitionFade() {
   ctx.fillStyle = `rgba(2, 5, 9, ${state.transitionFade * 0.76})`;
   ctx.fillRect(0, 0, WIDTH, HEIGHT);
   ctx.restore();
+}
+
+function drawActMapOverlay() {
+  if (!state.mapOverlayOpen) return;
+
+  ctx.save();
+  ctx.fillStyle = "rgba(2, 5, 9, 0.72)";
+  ctx.fillRect(0, 0, WIDTH, HEIGHT);
+
+  const panel = { x: 90, y: 70, w: WIDTH - 180, h: HEIGHT - 140 };
+  drawPanelRect(panel);
+
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "900 42px Inter, system-ui, sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText("ACT MAP", CENTER.x, panel.y + 44);
+
+  const mapRect = { x: panel.x + 42, y: panel.y + 92, w: panel.w - 84, h: panel.h - 145 };
+  const positions = getMapNodePositions(mapRect);
+  drawMapConnections(positions);
+
+  for (const row of state.actMap) {
+    for (const node of row) {
+      drawMapNode(node, positions.get(node.id));
+    }
+  }
+
+  ctx.fillStyle = "#baf5ff";
+  ctx.font = "800 14px Inter, system-ui, sans-serif";
+  ctx.fillText("TAB / ESC close", CENTER.x, panel.y + panel.h - 28);
+  ctx.restore();
+}
+
+function getMapNodePositions(rect) {
+  const positions = new Map();
+  const rowGap = rect.w / (ACT_ROOMS - 1);
+  for (const row of state.actMap) {
+    const x = rect.x + (row[0].room - 1) * rowGap;
+    row.forEach((node, index) => {
+      const spread = row.length === 1 ? 0 : (index - (row.length - 1) / 2) * 92;
+      positions.set(node.id, {
+        x,
+        y: rect.y + rect.h / 2 + spread,
+      });
+    });
+  }
+  return positions;
+}
+
+function drawMapConnections(positions) {
+  ctx.save();
+  ctx.lineWidth = 2;
+  for (let r = 0; r < state.actMap.length - 1; r += 1) {
+    for (const a of state.actMap[r]) {
+      for (const b of state.actMap[r + 1]) {
+        const pa = positions.get(a.id);
+        const pb = positions.get(b.id);
+        if (!pa || !pb) continue;
+        const active = a.cleared && (b.available || b.current || b.selected);
+        ctx.strokeStyle = active ? rgba(getTheme().accentColor, 0.75) : "rgba(132, 220, 255, 0.13)";
+        ctx.beginPath();
+        ctx.moveTo(pa.x, pa.y);
+        ctx.lineTo(pb.x, pb.y);
+        ctx.stroke();
+      }
+    }
+  }
+  ctx.restore();
+}
+
+function drawMapNode(node, position) {
+  if (!position) return;
+  const radius = node.isBoss ? 26 : 21;
+  const color = node.template?.theme?.accentColor || getTheme().accentColor;
+  const alpha = node.discovered ? 0.95 : 0.28;
+
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = node.selected
+    ? rgba(color, 0.42)
+    : node.available
+      ? rgba(color, 0.28)
+      : node.current
+        ? rgba(color, 0.34)
+        : node.cleared
+          ? "rgba(185, 248, 255, 0.2)"
+          : "rgba(80, 105, 118, 0.16)";
+  ctx.strokeStyle = node.selected || node.current ? "#ffffff" : rgba(color, node.available ? 0.72 : 0.34);
+  ctx.lineWidth = node.selected || node.current ? 3 : 1.5;
+  ctx.beginPath();
+  ctx.arc(position.x, position.y, radius, 0, TAU);
+  ctx.fill();
+  ctx.stroke();
+
+  if (node.template) {
+    drawTrackIcon(ctx, node.trackType, position.x, position.y, 12, color);
+  } else {
+    ctx.fillStyle = "#93aeb9";
+    ctx.font = "900 16px Inter, system-ui, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("?", position.x, position.y + 1);
+  }
+
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = node.available || node.current || node.selected ? "#ffffff" : "#93aeb9";
+  ctx.font = "800 10px Inter, system-ui, sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "top";
+  ctx.fillText(node.archetype || "?", position.x, position.y + radius + 7);
+  ctx.font = "700 9px Inter, system-ui, sans-serif";
+  ctx.fillText(node.difficulty, position.x, position.y + radius + 20);
+  ctx.restore();
+}
+
+function drawTrackIcon(context, trackType, x, y, size, color) {
+  context.save();
+  context.strokeStyle = color;
+  context.lineWidth = 2;
+  context.lineCap = "round";
+  context.lineJoin = "round";
+  context.beginPath();
+  if (trackType === "spiral" || trackType === "brokenSpiral") {
+    for (let i = 0; i < 34; i += 1) {
+      const t = i / 33;
+      const angle = t * TAU * 1.8;
+      const r = size * (1 - t * 0.78);
+      const px = x + Math.cos(angle) * r;
+      const py = y + Math.sin(angle) * r;
+      if (i === 0) context.moveTo(px, py);
+      else context.lineTo(px, py);
+    }
+  } else if (trackType === "snake") {
+    for (let i = 0; i < 20; i += 1) {
+      const t = i / 19;
+      const px = x - size + t * size * 2;
+      const py = y + Math.sin(t * Math.PI * 3) * size * 0.55;
+      if (i === 0) context.moveTo(px, py);
+      else context.lineTo(px, py);
+    }
+  } else if (trackType === "rings") {
+    context.arc(x, y, size * 0.9, 0, TAU);
+    context.moveTo(x + size * 0.45, y);
+    context.arc(x, y, size * 0.45, 0, TAU);
+  } else if (trackType === "clover") {
+    for (let i = 0; i < 4; i += 1) {
+      const angle = (i / 4) * TAU;
+      context.moveTo(x, y);
+      context.quadraticCurveTo(
+        x + Math.cos(angle - 0.5) * size,
+        y + Math.sin(angle - 0.5) * size,
+        x + Math.cos(angle) * size * 0.35,
+        y + Math.sin(angle) * size * 0.35,
+      );
+    }
+  } else if (trackType === "zigzagCoil") {
+    context.moveTo(x - size, y - size * 0.6);
+    context.lineTo(x + size * 0.55, y - size * 0.25);
+    context.lineTo(x - size * 0.45, y + size * 0.2);
+    context.lineTo(x + size, y + size * 0.62);
+  } else {
+    context.moveTo(x - size, y);
+    context.lineTo(x + size, y);
+  }
+  context.stroke();
+  context.restore();
 }
 
 function drawPathRange(start, end, options) {
