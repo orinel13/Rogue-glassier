@@ -64,6 +64,10 @@ body {
   color: #eaffff;
   font-size: 17px;
   font-variant-numeric: tabular-nums;
+  max-width: 112px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: right;
   white-space: nowrap;
 }
 

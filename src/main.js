@@ -1,10 +1,15 @@
 import "./style.css";
+import { AudioManager } from "./audio.js";
 
 const canvas = document.querySelector("#gameCanvas");
 const ctx = canvas.getContext("2d");
 
 const hud = {
+  levelIndex: document.querySelector("#levelIndex"),
+  levelName: document.querySelector("#levelName"),
+  trackType: document.querySelector("#trackType"),
   launches: document.querySelector("#launches"),
+  totalLaunches: document.querySelector("#totalLaunches"),
   activeBalls: document.querySelector("#activeBalls"),
   shards: document.querySelector("#shards"),
   powerUpgrade: document.querySelector("#powerUpgrade"),
@@ -13,6 +18,7 @@ const hud = {
   brokenGlass: document.querySelector("#brokenGlass"),
   coreHp: document.querySelector("#coreHp"),
   coreDistance: document.querySelector("#coreDistance"),
+  audioStatus: document.querySelector("#audioStatus"),
 };
 
 const WIDTH = canvas.width;
@@ -22,22 +28,121 @@ const TAU = Math.PI * 2;
 
 const BASE_BALL_POWER = 8;
 const BASE_BALL_SPEED = 0.15;
-const CORE_MAX_HP = 165;
 const UPGRADE_COSTS = {
   power: [10, 15, 25, 40, 60, 90, 135],
   speed: [8, 12, 18, 28, 42, 64, 96],
   balls: [25, 40, 65, 100, 150, 225],
 };
 
+const LEVELS = [
+  {
+    name: "Glass Spiral",
+    trackType: "spiral",
+    turns: 3.65,
+    segments: 72,
+    coreHp: 165,
+    hpCurve: { start: 2, end: 18, exponent: 1.7 },
+    multipliers: [
+      { progress: 0.25, value: 2 },
+      { progress: 0.5, value: 3 },
+      { progress: 0.75, value: 1 },
+      { progress: 0.9, value: 5 },
+    ],
+    theme: {
+      accentColor: "#72eeff",
+      glassTint: "#98eeff",
+      backgroundGridStrength: 0.23,
+    },
+  },
+  {
+    name: "Serpent Cut",
+    trackType: "snake",
+    segments: 86,
+    coreHp: 150,
+    hpCurve: { start: 2, end: 15, exponent: 1.35 },
+    multipliers: [
+      { progress: 0.2, value: 2 },
+      { progress: 0.45, value: 2 },
+      { progress: 0.7, value: 3 },
+      { progress: 0.88, value: 5 },
+    ],
+    theme: {
+      accentColor: "#65ffd1",
+      glassTint: "#7fe8dc",
+      backgroundGridStrength: 0.18,
+    },
+  },
+  {
+    name: "Ring Chamber",
+    trackType: "rings",
+    segments: 78,
+    coreHp: 185,
+    hpCurve: { start: 3, end: 20, exponent: 1.45, midBoost: 7 },
+    multipliers: [
+      { progress: 0.3, value: 3 },
+      { progress: 0.55, value: 1 },
+      { progress: 0.78, value: 4 },
+      { progress: 0.92, value: 5 },
+    ],
+    theme: {
+      accentColor: "#b9a7ff",
+      glassTint: "#abc6ff",
+      backgroundGridStrength: 0.21,
+    },
+  },
+  {
+    name: "Clover Trap",
+    trackType: "clover",
+    segments: 90,
+    coreHp: 305,
+    hpCurve: { start: 3, end: 23, exponent: 1.45 },
+    multipliers: [
+      { progress: 0.18, value: 2 },
+      { progress: 0.42, value: 3 },
+      { progress: 0.66, value: 2 },
+      { progress: 0.9, value: 5 },
+    ],
+    theme: {
+      accentColor: "#d8ff80",
+      glassTint: "#bdf4aa",
+      backgroundGridStrength: 0.17,
+    },
+  },
+  {
+    name: "Broken Core",
+    trackType: "brokenSpiral",
+    turns: 3.25,
+    segments: 62,
+    coreHp: 285,
+    hpCurve: { start: 5, end: 34, exponent: 1.55 },
+    multipliers: [
+      { progress: 0.25, value: 2 },
+      { progress: 0.52, value: 3 },
+      { progress: 0.72, value: 1 },
+      { progress: 0.91, value: 6 },
+    ],
+    theme: {
+      accentColor: "#e8f8ff",
+      glassTint: "#d7f4ff",
+      backgroundGridStrength: 0.28,
+    },
+  },
+];
+
+const audio = new AudioManager();
+
 const state = {
   phase: "idle",
-  spiral: [],
+  levelIndex: 0,
+  level: LEVELS[0],
+  track: [],
   segments: [],
   multipliers: [],
   balls: [],
   particles: [],
   floatingTexts: [],
   launches: 0,
+  totalLaunches: 0,
   shards: 0,
   bestDepth: 0,
   core: null,
@@ -54,9 +159,11 @@ const state = {
 };
 
 function init() {
-  resetLevel();
+  resetRun();
 
-  window.addEventListener("keydown", (event) => {
+  window.addEventListener("keydown", async (event) => {
+    await audio.unlock();
+
     if (event.code === "Space") {
       event.preventDefault();
       handleSpace();
@@ -66,6 +173,7 @@ function init() {
     if (event.key === "1") buyUpgrade("power");
     if (event.key === "2") buyUpgrade("speed");
     if (event.key === "3") buyUpgrade("balls");
+    if (event.key.toLowerCase() === "m") toggleMute();
   });
 
   requestAnimationFrame(tick);
@@ -73,7 +181,12 @@ function init() {
 
 function handleSpace() {
   if (state.phase === "victory") {
-    resetLevel();
+    audio.play("uiClick");
+    if (state.levelIndex < LEVELS.length - 1) {
+      startLevel(state.levelIndex + 1);
+    } else {
+      resetRun();
+    }
     return;
   }
 
@@ -82,51 +195,171 @@ function handleSpace() {
   }
 }
 
-function resetLevel() {
+function resetRun() {
+  state.levelIndex = 0;
+  state.shards = 0;
+  state.totalLaunches = 0;
+  state.upgrades = { power: 0, speed: 0, balls: 0 };
+  startLevel(0);
+}
+
+function startLevel(levelIndex) {
   state.phase = "idle";
-  state.spiral = generateSpiral();
-  state.segments = generateGlassSegments();
-  state.multipliers = createMultipliers();
+  state.levelIndex = levelIndex;
+  state.level = LEVELS[levelIndex];
+  state.track = generateTrack(state.level);
+  state.segments = generateGlassSegments(state.level);
+  state.multipliers = createMultipliers(state.level);
   state.balls = [];
   state.particles = [];
   state.floatingTexts = [];
   state.launches = 0;
-  state.shards = 0;
   state.bestDepth = 0;
   state.core = {
-    hp: CORE_MAX_HP,
-    maxHp: CORE_MAX_HP,
+    hp: state.level.coreHp,
+    maxHp: state.level.coreHp,
     broken: false,
   };
-  state.upgrades = { power: 0, speed: 0, balls: 0 };
   state.waveStats = null;
   state.waveReport = null;
   state.coreFlash = 0;
   state.screenShake = 0;
+  addFloatingText(CENTER.x, 76, state.level.name, getTheme().accentColor, 1.15);
   updateHud();
 }
 
-function generateSpiral() {
+function generateTrack(level) {
+  const generators = {
+    spiral: generateSpiralTrack,
+    snake: generateSnakeTrack,
+    rings: generateRingsTrack,
+    clover: generateCloverTrack,
+    brokenSpiral: generateBrokenSpiralTrack,
+  };
+
+  const points = generators[level.trackType]?.(level) || generateSpiralTrack(level);
+  return normalizeTrack(points);
+}
+
+function generateSpiralTrack(level) {
   const points = [];
-  const turns = 3.65;
+  const turns = level.turns || 3.55;
   const samples = 860;
   const outerRadius = 382;
   const innerRadius = 30;
   const startAngle = -Math.PI * 0.12;
-
-  let totalLength = 0;
-  let previous = null;
 
   for (let i = 0; i <= samples; i += 1) {
     const t = i / samples;
     const eased = t ** 0.93;
     const angle = startAngle + eased * turns * TAU;
     const radius = outerRadius * (1 - t) + innerRadius * t;
-    const point = {
+    points.push({
       x: CENTER.x + Math.cos(angle) * radius,
       y: CENTER.y + Math.sin(angle) * radius,
-      progress: t,
+    });
+  }
+
+  return points;
+}
+
+function generateSnakeTrack() {
+  const points = [];
+  const samples = 820;
+  const start = { x: 92, y: 190 };
+  const end = { x: CENTER.x + 20, y: CENTER.y + 8 };
+
+  for (let i = 0; i <= samples; i += 1) {
+    const t = i / samples;
+    const wave = Math.sin(t * Math.PI * 7.2 - Math.PI * 0.58);
+    const amp = 265 * (1 - t * 0.58);
+    const x = lerp(start.x, end.x, t);
+    const y = lerp(start.y, end.y, t) + wave * amp * 0.74;
+    points.push({ x, y });
+  }
+
+  return points;
+}
+
+function generateRingsTrack() {
+  const points = [];
+  const samples = 860;
+  const startAngle = -Math.PI * 0.15;
+
+  for (let i = 0; i <= samples; i += 1) {
+    const t = i / samples;
+    const angle = startAngle + t * TAU * 3.9;
+    const ringStep = Math.floor(t * 4);
+    const local = (t * 4) % 1;
+    const ringRadius = 352 - ringStep * 76;
+    const transition = smoothstep(local);
+    const radius = Math.max(34, ringRadius - transition * 45 - t * 12);
+    points.push({
+      x: CENTER.x + Math.cos(angle) * radius,
+      y: CENTER.y + Math.sin(angle) * radius,
+    });
+  }
+
+  points.push({ x: CENTER.x, y: CENTER.y });
+  return points;
+}
+
+function generateCloverTrack() {
+  const points = [];
+  const samples = 860;
+  const turns = 2.9;
+  const lobes = 4;
+  const startAngle = -Math.PI * 0.48;
+
+  for (let i = 0; i <= samples; i += 1) {
+    const t = i / samples;
+    const angle = startAngle + t * TAU * turns;
+    const baseRadius = 360 * (1 - t) + 28 * t;
+    const petal = 1 + Math.sin(angle * lobes) * 0.28 * (1 - t * 0.45);
+    const radius = baseRadius * petal;
+    points.push({
+      x: CENTER.x + Math.cos(angle) * radius,
+      y: CENTER.y + Math.sin(angle) * radius,
+    });
+  }
+
+  return points;
+}
+
+function generateBrokenSpiralTrack(level) {
+  const points = [];
+  const turns = level.turns || 3.25;
+  const samples = 840;
+  const outerRadius = 382;
+  const innerRadius = 28;
+  const startAngle = -Math.PI * 0.08;
+
+  for (let i = 0; i <= samples; i += 1) {
+    const t = i / samples;
+    const kink = Math.sin(t * Math.PI * 9) * 0.18 + Math.sin(t * Math.PI * 17) * 0.06;
+    const angle = startAngle + t ** 0.9 * turns * TAU + kink;
+    const squeeze = Math.sin(t * Math.PI * 6) * 24 * (1 - t);
+    const radius = outerRadius * (1 - t) + innerRadius * t + squeeze;
+    points.push({
+      x: CENTER.x + Math.cos(angle) * radius,
+      y: CENTER.y + Math.sin(angle) * radius,
+    });
+  }
+
+  return points;
+}
+
+function normalizeTrack(points) {
+  const normalized = [];
+  let totalLength = 0;
+  let previous = null;
+
+  for (const rawPoint of points) {
+    const point = {
+      x: clamp(rawPoint.x, 48, WIDTH - 48),
+      y: clamp(rawPoint.y, 48, HEIGHT - 48),
       distance: totalLength,
+      progress: 0,
     };
 
     if (previous) {
@@ -134,26 +367,30 @@ function generateSpiral() {
       point.distance = totalLength;
     }
 
-    points.push(point);
+    normalized.push(point);
     previous = point;
   }
 
-  for (const point of points) {
-    point.pathProgress = point.distance / totalLength;
+  for (let i = 0; i < normalized.length; i += 1) {
+    normalized[i].progress = i / (normalized.length - 1);
+    normalized[i].pathProgress = totalLength > 0 ? normalized[i].distance / totalLength : 0;
   }
 
-  return points;
+  return normalized;
 }
 
-function generateGlassSegments() {
+function generateGlassSegments(level) {
   const segments = [];
-  const count = 72;
+  const count = level.segments;
 
   for (let i = 0; i < count; i += 1) {
     const start = i / count;
     const end = (i + 0.82) / count;
     const mid = (start + end) * 0.5;
-    const maxHp = Math.max(1, Math.round(1 + mid * 4 + mid ** 2 * 12));
+    const curve = level.hpCurve;
+    const baseHp = curve.start + (curve.end - curve.start) * mid ** curve.exponent;
+    const boost = curve.midBoost ? Math.sin(Math.PI * mid) * curve.midBoost : 0;
+    const maxHp = Math.max(1, Math.round(baseHp + boost));
 
     segments.push({
       id: i,
@@ -184,14 +421,13 @@ function createCracks(seed) {
   return cracks;
 }
 
-function createMultipliers() {
-  return [
-    { id: "m25", progress: 0.25, value: 2, triggered: 0, flash: 0 },
-    { id: "m50", progress: 0.5, value: 3, triggered: 0, flash: 0 },
-    { id: "m75", progress: 0.75, value: 1, triggered: 0, flash: 0 },
-    { id: "m90", progress: 0.9, value: 5, triggered: 0, flash: 0 },
-  ].map((multiplier) => ({
-    ...multiplier,
+function createMultipliers(level) {
+  return level.multipliers.map((multiplier, index) => ({
+    id: `m${index}-${multiplier.progress}`,
+    progress: multiplier.progress,
+    value: multiplier.value,
+    triggered: 0,
+    flash: 0,
     point: getPointAtProgress(multiplier.progress),
   }));
 }
@@ -199,6 +435,7 @@ function createMultipliers() {
 function launchWave() {
   state.phase = "running";
   state.launches += 1;
+  state.totalLaunches += 1;
   state.waveReport = null;
   state.waveStats = createWaveStats();
 
@@ -217,7 +454,8 @@ function launchWave() {
     state.balls.push(createBall(0, getBallPower(), getBallSpeed(), offset, "#f8fbff"));
   }
 
-  burst(startPoint.x, startPoint.y, "#dffbff", 12 + startBalls * 6, 120);
+  audio.play("launch");
+  burst(startPoint.x, startPoint.y, getTheme().glassTint, 12 + startBalls * 6, 120);
   updateHud();
 }
 
@@ -336,8 +574,8 @@ function handleGlassCollision(ball) {
     updateWaveStats(ball.progress);
     state.waveStats.damageDealt += appliedDamage;
 
-    addFloatingText(hitPoint.x, hitPoint.y, `-${Math.ceil(appliedDamage)}`, "#dffbff");
-    burst(hitPoint.x, hitPoint.y, segment.hp <= 0 ? "#dfffff" : "#7ce6ff", 16, 165);
+    addFloatingText(hitPoint.x, hitPoint.y, `-${Math.ceil(appliedDamage)}`, getTheme().glassTint);
+    burst(hitPoint.x, hitPoint.y, segment.hp <= 0 ? "#ffffff" : getTheme().glassTint, 16, 165);
     addScreenShake(appliedDamage > 10 ? 2.4 : 1.1);
 
     if (segment.hp <= 0) {
@@ -350,10 +588,12 @@ function handleGlassCollision(ball) {
       addFloatingText(hitPoint.x, hitPoint.y - 20, "BREAK", "#ffffff", 0.9);
       burst(hitPoint.x, hitPoint.y, "#ffffff", 30, 235);
       addScreenShake(3.2);
+      audio.play("break");
       segment = findBlockingSegment(ball.progress);
       continue;
     }
 
+    audio.play("hit");
     ball.alive = false;
   }
 }
@@ -380,6 +620,7 @@ function handleMultipliers(ball, spawned) {
     state.waveStats.multiplierCounts[label] =
       (state.waveStats.multiplierCounts[label] || 0) + 1;
 
+    audio.play("multiplier");
     burst(multiplier.point.x, multiplier.point.y, "#fff37a", 30, 250);
     addFloatingText(multiplier.point.x, multiplier.point.y - 24, `${label}!`, "#fff37a", 1.1);
     addScreenShake(1.6 + multiplier.value * 0.3);
@@ -438,13 +679,16 @@ function earnShards(stats) {
 }
 
 function buyUpgrade(type) {
-  if (state.phase !== "idle" && state.phase !== "waveComplete") return;
+  if (state.phase !== "idle" && state.phase !== "waveComplete") {
+    audio.play("denied");
+    return;
+  }
   if (state.core.broken) return;
 
   const price = getUpgradeCost(type);
   if (state.shards < price) {
-    const point = type === "power" ? { x: 132, y: 330 } : type === "speed" ? { x: 132, y: 370 } : { x: 132, y: 410 };
-    addFloatingText(point.x, point.y, "Need shards", "#ffb6b6", 0.75);
+    addFloatingText(CENTER.x, 82, "Need shards", "#ffb6b6", 0.75);
+    audio.play("denied");
     return;
   }
 
@@ -452,6 +696,13 @@ function buyUpgrade(type) {
   state.upgrades[type] += 1;
   state.waveReport = null;
   addFloatingText(CENTER.x, 76, `${type.toUpperCase()} +`, "#fff37a", 0.9);
+  audio.play("upgrade");
+  updateHud();
+}
+
+function toggleMute() {
+  const muted = audio.toggleMute();
+  addFloatingText(CENTER.x, 76, muted ? "AUDIO OFF" : "AUDIO ON", muted ? "#ffb6b6" : "#baf5ff", 0.8);
   updateHud();
 }
 
@@ -470,6 +721,7 @@ function damageCore(amount, ball) {
   burst(corePoint.x, corePoint.y, "#ffffff", 34, 245);
   addScreenShake(4 + appliedDamage * 0.08);
   state.coreFlash = Math.max(state.coreFlash, 0.45);
+  audio.play("coreHit");
 
   if (state.core.hp <= 0) {
     state.core.hp = 0;
@@ -493,6 +745,7 @@ function winLevel() {
   burst(corePoint.x, corePoint.y, "#ffffff", 125, 420);
   burst(corePoint.x, corePoint.y, "#fff37a", 72, 300);
   addScreenShake(14);
+  audio.play("victory");
 }
 
 function updateParticles(dt) {
@@ -530,9 +783,10 @@ function draw() {
   ctx.save();
   ctx.translate(shake.x, shake.y);
   drawBackground();
-  drawSpiral();
+  drawTrack();
   drawGlass();
   drawMultipliers();
+  drawStartMarker();
   drawCore();
   drawBallTrails();
   drawBalls();
@@ -545,16 +799,18 @@ function draw() {
 }
 
 function drawBackground() {
+  const theme = getTheme();
+  const accent = hexToRgb(theme.accentColor);
   const gradient = ctx.createRadialGradient(CENTER.x, CENTER.y, 20, CENTER.x, CENTER.y, 520);
-  gradient.addColorStop(0, "#10202a");
+  gradient.addColorStop(0, `rgba(${accent.r}, ${accent.g}, ${accent.b}, 0.18)`);
   gradient.addColorStop(0.45, "#071017");
   gradient.addColorStop(1, "#030509");
   ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, WIDTH, HEIGHT);
 
   ctx.save();
-  ctx.globalAlpha = 0.23;
-  ctx.strokeStyle = "#1d3f4e";
+  ctx.globalAlpha = theme.backgroundGridStrength;
+  ctx.strokeStyle = rgba(theme.accentColor, 0.34);
   ctx.lineWidth = 1;
   for (let x = 70; x < WIDTH; x += 70) {
     ctx.beginPath();
@@ -571,7 +827,8 @@ function drawBackground() {
   ctx.restore();
 }
 
-function drawSpiral() {
+function drawTrack() {
+  const theme = getTheme();
   drawPathRange(0, 1, {
     lineWidth: 54,
     strokeStyle: "rgba(15, 45, 58, 0.62)",
@@ -579,13 +836,14 @@ function drawSpiral() {
   });
   drawPathRange(0, 1, {
     lineWidth: 34,
-    strokeStyle: "rgba(92, 211, 236, 0.11)",
+    strokeStyle: rgba(theme.accentColor, 0.12),
     shadowBlur: 16,
-    shadowColor: "rgba(80, 225, 255, 0.34)",
+    shadowColor: rgba(theme.accentColor, 0.35),
   });
 }
 
 function drawGlass() {
+  const theme = getTheme();
   for (const segment of state.segments) {
     const integrity = segment.maxHp === 0 ? 0 : segment.hp / segment.maxHp;
     const centerProgress = (segment.progressStart + segment.progressEnd) * 0.5;
@@ -594,16 +852,16 @@ function drawGlass() {
     if (segment.broken) {
       drawPathRange(segment.progressStart, segment.progressEnd, {
         lineWidth: 30,
-        strokeStyle: "rgba(122, 223, 255, 0.035)",
+        strokeStyle: rgba(theme.glassTint, 0.035),
       });
       continue;
     }
 
     drawPathRange(segment.progressStart, segment.progressEnd, {
       lineWidth: 31,
-      strokeStyle: `rgba(152, 238, 255, ${density + integrity * 0.34})`,
+      strokeStyle: rgba(theme.glassTint, density + integrity * 0.34),
       shadowBlur: 13,
-      shadowColor: `rgba(115, 232, 255, ${0.18 + integrity * 0.32})`,
+      shadowColor: rgba(theme.glassTint, 0.18 + integrity * 0.32),
     });
     drawPathRange(segment.progressStart, segment.progressEnd, {
       lineWidth: 12,
@@ -669,7 +927,28 @@ function drawMultipliers() {
   }
 }
 
+function drawStartMarker() {
+  const start = getPointAtProgress(0);
+  const pulse = Math.sin(performance.now() * 0.006) * 0.5 + 0.5;
+  ctx.save();
+  ctx.strokeStyle = rgba(getTheme().accentColor, 0.72);
+  ctx.lineWidth = 2;
+  ctx.shadowBlur = 18;
+  ctx.shadowColor = getTheme().accentColor;
+  ctx.beginPath();
+  ctx.arc(start.x, start.y, 18 + pulse * 4, 0, TAU);
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = "#baf5ff";
+  ctx.font = "800 11px Inter, system-ui, sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText("START", start.x, start.y - 30);
+  ctx.restore();
+}
+
 function drawCore() {
+  const corePoint = getPointAtProgress(1);
   const damageRatio = 1 - state.core.hp / state.core.maxHp;
   const pulseSpeed = 0.005 + damageRatio * 0.007;
   const pulse = Math.sin(performance.now() * pulseSpeed) * 0.5 + 0.5;
@@ -679,11 +958,11 @@ function drawCore() {
 
   ctx.save();
   ctx.shadowBlur = 28 + damageRatio * 32 + flash * 70;
-  ctx.shadowColor = flash > 0 ? "#ffffff" : "#72eeff";
+  ctx.shadowColor = flash > 0 ? "#ffffff" : getTheme().accentColor;
   ctx.fillStyle =
-    flash > 0 ? `rgba(255, 255, 255, ${0.45 + flash * 0.35})` : `rgba(87, 229, 255, ${alpha})`;
+    flash > 0 ? `rgba(255, 255, 255, ${0.45 + flash * 0.35})` : rgba(getTheme().accentColor, alpha);
   ctx.beginPath();
-  ctx.arc(CENTER.x, CENTER.y, radius, 0, TAU);
+  ctx.arc(corePoint.x, corePoint.y, radius, 0, TAU);
   ctx.fill();
 
   ctx.shadowBlur = 0;
@@ -694,14 +973,17 @@ function drawCore() {
     const inner = 7 + damageRatio * 2;
     const outer = 18 + damageRatio * 22;
     ctx.beginPath();
-    ctx.moveTo(CENTER.x + Math.cos(angle) * inner, CENTER.y + Math.sin(angle) * inner);
-    ctx.lineTo(CENTER.x + Math.cos(angle + 0.24) * outer, CENTER.y + Math.sin(angle + 0.24) * outer);
+    ctx.moveTo(corePoint.x + Math.cos(angle) * inner, corePoint.y + Math.sin(angle) * inner);
+    ctx.lineTo(
+      corePoint.x + Math.cos(angle + 0.24) * outer,
+      corePoint.y + Math.sin(angle + 0.24) * outer,
+    );
     ctx.stroke();
   }
 
   ctx.fillStyle = state.core.broken ? "#ffffff" : "#061019";
   ctx.beginPath();
-  ctx.arc(CENTER.x, CENTER.y, 14 + pulse * 2, 0, TAU);
+  ctx.arc(corePoint.x, corePoint.y, 14 + pulse * 2, 0, TAU);
   ctx.fill();
   ctx.restore();
 }
@@ -786,7 +1068,7 @@ function drawWaveReport() {
 
   ctx.save();
   ctx.fillStyle = "rgba(4, 9, 14, 0.76)";
-  ctx.strokeStyle = "rgba(141, 233, 255, 0.32)";
+  ctx.strokeStyle = rgba(getTheme().accentColor, 0.4);
   ctx.lineWidth = 1;
   roundRect(x, y, w, h, 8);
   ctx.fill();
@@ -829,21 +1111,38 @@ function drawWaveReport() {
 function drawWinOverlay() {
   if (state.phase !== "victory") return;
 
+  const isFinal = state.levelIndex === LEVELS.length - 1;
+  const nextLevel = LEVELS[state.levelIndex + 1];
+
   ctx.save();
-  ctx.fillStyle = "rgba(2, 5, 9, 0.32)";
+  ctx.fillStyle = "rgba(2, 5, 9, 0.42)";
   ctx.fillRect(0, 0, WIDTH, HEIGHT);
+  ctx.fillStyle = "rgba(4, 9, 14, 0.78)";
+  ctx.strokeStyle = rgba(getTheme().accentColor, 0.52);
+  roundRect(CENTER.x - 260, CENTER.y - 170, 520, 270, 8);
+  ctx.fill();
+  ctx.stroke();
+
   ctx.shadowBlur = 36;
   ctx.shadowColor = "#ffffff";
   ctx.fillStyle = "#ffffff";
-  ctx.font = "900 76px Inter, system-ui, sans-serif";
+  ctx.font = "900 62px Inter, system-ui, sans-serif";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillText("CORE BROKEN", CENTER.x, CENTER.y - 82);
+  ctx.fillText(isFinal ? "ACT 1 CLEARED" : "CORE BROKEN", CENTER.x, CENTER.y - 92);
+
   ctx.shadowBlur = 0;
   ctx.fillStyle = "#b9f8ff";
-  ctx.font = "700 22px Inter, system-ui, sans-serif";
-  ctx.fillText(`Shards earned: +${state.waveStats?.shardsEarned || 25}`, CENTER.x, CENTER.y - 32);
-  ctx.fillText("Press SPACE to restart", CENTER.x, CENTER.y + 4);
+  ctx.font = "800 24px Inter, system-ui, sans-serif";
+  ctx.fillText(isFinal ? "Run complete" : "Level complete", CENTER.x, CENTER.y - 32);
+
+  ctx.font = "700 18px Inter, system-ui, sans-serif";
+  if (isFinal) {
+    ctx.fillText("Press SPACE to start a new run", CENTER.x, CENTER.y + 22);
+  } else {
+    ctx.fillText(`Next: ${nextLevel.name}`, CENTER.x, CENTER.y + 18);
+    ctx.fillText("Press SPACE to continue", CENTER.x, CENTER.y + 54);
+  }
   ctx.restore();
 }
 
@@ -918,12 +1217,12 @@ function getShakeOffset() {
 
 function getPointAtProgress(progress) {
   const t = clamp(progress, 0, 1);
-  const scaled = t * (state.spiral.length - 1);
+  const scaled = t * (state.track.length - 1);
   const index = Math.floor(scaled);
-  const nextIndex = Math.min(index + 1, state.spiral.length - 1);
+  const nextIndex = Math.min(index + 1, state.track.length - 1);
   const local = scaled - index;
-  const a = state.spiral[index];
-  const b = state.spiral[nextIndex];
+  const a = state.track[index];
+  const b = state.track[nextIndex];
 
   return {
     x: lerp(a.x, b.x, local),
@@ -944,7 +1243,9 @@ function pickBallColor(multiplier, index) {
   const colors = {
     2: ["#fff5a8", "#f8fbff"],
     3: ["#8ff5ff", "#fff5a8", "#ffb8f2"],
+    4: ["#8ff5ff", "#fff5a8", "#ffb8f2", "#b7ff9c"],
     5: ["#ffffff", "#8ff5ff", "#fff37a", "#b7ff9c", "#ffb8f2"],
+    6: ["#ffffff", "#8ff5ff", "#fff37a", "#b7ff9c", "#ffb8f2", "#d7f4ff"],
   };
   return colors[multiplier]?.[index % colors[multiplier].length] || "#ffffff";
 }
@@ -974,7 +1275,11 @@ function getBrokenGlassCount() {
 
 function updateHud() {
   const broken = getBrokenGlassCount();
+  hud.levelIndex.textContent = `${state.levelIndex + 1} / ${LEVELS.length}`;
+  hud.levelName.textContent = state.level.name;
+  hud.trackType.textContent = state.level.trackType;
   hud.launches.textContent = state.launches;
+  hud.totalLaunches.textContent = state.totalLaunches;
   hud.activeBalls.textContent = state.balls.length;
   hud.shards.textContent = state.shards;
   hud.powerUpgrade.textContent = `${state.upgrades.power} / ${getUpgradeCost("power")}`;
@@ -983,6 +1288,11 @@ function updateHud() {
   hud.brokenGlass.textContent = `${broken} / ${state.segments.length}`;
   hud.coreHp.textContent = `${Math.ceil(state.core.hp)} / ${state.core.maxHp}`;
   hud.coreDistance.textContent = `${formatPercent(state.bestDepth)}`;
+  hud.audioStatus.textContent = audio.muted ? "muted" : "on";
+}
+
+function getTheme() {
+  return state.level.theme;
 }
 
 function formatPercent(value) {
@@ -1003,6 +1313,26 @@ function roundRect(x, y, w, h, radius) {
   ctx.arcTo(x, y + h, x, y, radius);
   ctx.arcTo(x, y, x + w, y, radius);
   ctx.closePath();
+}
+
+function rgba(hex, alpha) {
+  const color = hexToRgb(hex);
+  return `rgba(${color.r}, ${color.g}, ${color.b}, ${alpha})`;
+}
+
+function hexToRgb(hex) {
+  const clean = hex.replace("#", "");
+  const value = Number.parseInt(clean, 16);
+  return {
+    r: (value >> 16) & 255,
+    g: (value >> 8) & 255,
+    b: value & 255,
+  };
+}
+
+function smoothstep(value) {
+  const t = clamp(value, 0, 1);
+  return t * t * (3 - 2 * t);
 }
 
 function distance(a, b) {
