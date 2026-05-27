@@ -151,6 +151,32 @@ const LEVEL_MODIFIERS = {
   },
 };
 
+const MODIFIER_LABELS = {
+  brittleGlass: "Brittle",
+  denseMiddle: "Dense",
+  armoredCore: "Armor",
+  multiplierRush: "Rush",
+  fragileBalls: "Fragile",
+  richChamber: "Rich",
+  crackedStart: "Crack",
+  glassRegen: "Regen",
+};
+
+const MENU_ITEMS = [
+  {
+    id: "arcade",
+    key: "1",
+    title: "Arcade Run",
+    body: "Current mode: shards, upgrades, rewards, act map.",
+  },
+  {
+    id: "puzzle",
+    key: "2",
+    title: "Puzzle Run",
+    body: "Experimental: place cards on the track and manage ball energy.",
+  },
+];
+
 const TUTORIAL_LEVEL = {
   id: "glassSpiral",
   name: "Glass Spiral",
@@ -419,6 +445,9 @@ const BOSS_LEVEL = {
 const audio = new AudioManager();
 
 const state = {
+  appState: "mainMenu",
+  arcadeInitialized: false,
+  menuSelection: 0,
   phase: "idle",
   room: 1,
   level: TUTORIAL_LEVEL,
@@ -465,43 +494,30 @@ const state = {
 };
 
 function init() {
-  resetRun();
+  setAppState("mainMenu");
 
   window.addEventListener("keydown", async (event) => {
     await audio.unlock();
 
-    if (event.code === "Space") {
-      event.preventDefault();
-      handleSpace();
+    if (event.key.toLowerCase() === "m") {
+      toggleMute();
       return;
     }
 
-    if (event.code === "Tab") {
-      event.preventDefault();
-      toggleMapOverlay();
-      return;
-    }
-
-    if (event.code === "Escape") {
-      if (state.mapOverlayOpen) {
-        event.preventDefault();
-        state.mapOverlayOpen = false;
-        audio.play("uiClick");
-      }
-      return;
-    }
-
-    if (event.key === "1") handleNumberKey(0, "power");
-    if (event.key === "2") handleNumberKey(1, "speed");
-    if (event.key === "3") handleNumberKey(2, "balls");
-    if (event.key.toLowerCase() === "m") toggleMute();
+    if (state.appState === "mainMenu") handleMainMenuKeyDown(event);
+    else if (state.appState === "puzzleRun") handlePuzzleKeyDown(event);
+    else handleArcadeKeyDown(event);
   });
 
   canvas.addEventListener("mousemove", (event) => {
-    state.mouse = getMousePos(event);
-    updateHoverState();
+    if (state.appState === "arcadeRun") handleArcadeMouseMove(event);
+    else {
+      state.mouse = getMousePos(event);
+      updateHoverState();
+    }
   });
   canvas.addEventListener("mouseleave", () => {
+    state.mouse = { x: -9999, y: -9999 };
     state.hoveredInteractive = null;
     canvas.style.cursor = "default";
   });
@@ -509,10 +525,113 @@ function init() {
     await audio.unlock();
     state.mouse = getMousePos(event);
     updateHoverState();
-    handleCanvasClick(event);
+    if (state.appState === "arcadeRun") handleArcadeClick(event);
+    else handleCanvasClick(event);
   });
 
   requestAnimationFrame(tick);
+}
+
+function setAppState(appState) {
+  state.appState = appState;
+  document.body.dataset.appState = appState;
+  state.mapOverlayOpen = false;
+  state.hoveredInteractive = null;
+  canvas.style.cursor = "default";
+  updateHud();
+}
+
+function startArcadeRun({ newRun = false } = {}) {
+  if (newRun || !state.arcadeInitialized) {
+    resetRun();
+    state.arcadeInitialized = true;
+  }
+  setAppState("arcadeRun");
+  audio.play("uiClick");
+}
+
+function openPuzzleRun() {
+  setAppState("puzzleRun");
+  audio.play("uiClick");
+}
+
+function handleMainMenuKeyDown(event) {
+  if (event.key === "1") {
+    startArcadeRun({ newRun: event.shiftKey });
+    return;
+  }
+  if (event.key.toLowerCase() === "n") {
+    startArcadeRun({ newRun: true });
+    return;
+  }
+  if (event.key === "2") {
+    openPuzzleRun();
+    return;
+  }
+  if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+    event.preventDefault();
+    const direction = event.key === "ArrowDown" ? 1 : -1;
+    state.menuSelection = (state.menuSelection + direction + MENU_ITEMS.length) % MENU_ITEMS.length;
+    audio.play("uiClick");
+    return;
+  }
+  if (event.code === "Space" || event.code === "Enter") {
+    event.preventDefault();
+    activateMenuItem(state.menuSelection);
+  }
+}
+
+function handlePuzzleKeyDown(event) {
+  if (event.code === "Escape") {
+    setAppState("mainMenu");
+    audio.play("uiClick");
+    return;
+  }
+  if (event.key === "1") startArcadeRun({ newRun: false });
+}
+
+function handleArcadeKeyDown(event) {
+  if (event.code === "Space") {
+    event.preventDefault();
+    handleSpace();
+    return;
+  }
+
+  if (event.code === "Tab") {
+    event.preventDefault();
+    toggleMapOverlay();
+    return;
+  }
+
+  if (event.code === "Escape") {
+    event.preventDefault();
+    if (state.mapOverlayOpen) {
+      state.mapOverlayOpen = false;
+      audio.play("uiClick");
+    } else {
+      setAppState("mainMenu");
+      audio.play("uiClick");
+    }
+    return;
+  }
+
+  if (event.key === "1") handleNumberKey(0, "power");
+  if (event.key === "2") handleNumberKey(1, "speed");
+  if (event.key === "3") handleNumberKey(2, "balls");
+}
+
+function handleArcadeMouseMove(event) {
+  state.mouse = getMousePos(event);
+  updateHoverState();
+}
+
+function handleArcadeClick(event) {
+  handleCanvasClick(event);
+}
+
+function activateMenuItem(index) {
+  if (index === 0) startArcadeRun({ newRun: false });
+  if (index === 1) openPuzzleRun();
 }
 
 function handleSpace() {
@@ -575,6 +694,14 @@ function updateHoverState() {
 function handleCanvasClick() {
   const hovered = state.hoveredInteractive;
   if (!hovered) return;
+
+  if (state.appState === "mainMenu" && hovered.type === "menuItem") {
+    state.menuSelection = hovered.payload.index;
+    activateMenuItem(hovered.payload.index);
+    return;
+  }
+
+  if (state.appState !== "arcadeRun") return;
 
   if (hovered.type === "reward" && state.phase === "rewardChoice") {
     chooseReward(hovered.payload.index);
@@ -1013,12 +1140,12 @@ function tick(time) {
   const dt = Math.min((time - state.lastTime) / 1000 || 0, 0.033);
   state.lastTime = time;
 
-  update(dt);
+  if (state.appState === "arcadeRun") updateArcadeRun(dt);
   draw();
   requestAnimationFrame(tick);
 }
 
-function update(dt) {
+function updateArcadeRun(dt) {
   updateBalls(dt);
   updateParticles(dt);
   updateFloatingTexts(dt);
@@ -1525,6 +1652,15 @@ function draw() {
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, WIDTH, HEIGHT);
 
+  if (state.appState === "mainMenu") drawMainMenu(ctx);
+  else if (state.appState === "puzzleRun") drawPuzzleRun(ctx);
+  else drawArcadeRun(ctx);
+
+  updateHoverState();
+  drawTooltip();
+}
+
+function drawArcadeRun() {
   const shake = getShakeOffset();
   ctx.save();
   ctx.translate(shake.x, shake.y);
@@ -1544,8 +1680,175 @@ function draw() {
   drawWinOverlay();
   drawActMapOverlay();
   drawTransitionFade();
-  drawTooltip();
-  updateHoverState();
+}
+
+function drawMainMenu() {
+  drawMenuBackground();
+  const panel = { x: 190, y: 116, w: WIDTH - 380, h: 688 };
+
+  ctx.save();
+  drawPanelRect(panel);
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#ffffff";
+  ctx.shadowBlur = 28;
+  ctx.shadowColor = rgba(getTheme().accentColor, 0.65);
+  ctx.font = "900 64px Inter, system-ui, sans-serif";
+  ctx.fillText("Rogue Glassier", CENTER.x, panel.y + 96);
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = "#baf5ff";
+  ctx.font = "800 20px Inter, system-ui, sans-serif";
+  ctx.fillText("Break the core. Shape the run.", CENTER.x, panel.y + 134);
+
+  const itemW = panel.w - 128;
+  const itemH = 104;
+  const itemX = panel.x + 64;
+  const startY = panel.y + 192;
+  MENU_ITEMS.forEach((item, index) => {
+    const rect = { x: itemX, y: startY + index * 124, w: itemW, h: itemH };
+    drawMenuItem(ctx, item, rect, index);
+  });
+
+  if (state.arcadeInitialized) {
+    ctx.fillStyle = "#93aeb9";
+    ctx.font = "800 13px Inter, system-ui, sans-serif";
+    ctx.fillText("1 resumes current Arcade Run. Press N or Shift+1 for a new run.", CENTER.x, panel.y + 474);
+  } else {
+    ctx.fillStyle = "#93aeb9";
+    ctx.font = "800 13px Inter, system-ui, sans-serif";
+    ctx.fillText("1 starts Arcade Run. N starts a fresh Arcade Run later.", CENTER.x, panel.y + 474);
+  }
+
+  ctx.fillStyle = "#baf5ff";
+  ctx.font = "900 14px Inter, system-ui, sans-serif";
+  ctx.fillText(`M ${audio.muted ? "unmute" : "mute"} audio`, CENTER.x, panel.y + panel.h - 54);
+  ctx.restore();
+}
+
+function drawMenuItem(context, item, rect, index) {
+  const hovered = state.hoveredInteractive?.type === "menuItem" && state.hoveredInteractive.payload.index === index;
+  const selected = hovered || state.menuSelection === index;
+  addInteractiveRect("menuItem", rect, { index }, { title: item.title, body: item.body });
+
+  context.save();
+  context.fillStyle = selected ? rgba(getTheme().accentColor, 0.24) : "rgba(9, 19, 27, 0.9)";
+  context.strokeStyle = selected ? rgba(getTheme().accentColor, 0.86) : rgba(getTheme().accentColor, 0.34);
+  context.lineWidth = selected ? 2 : 1;
+  roundRect(rect.x, rect.y, rect.w, rect.h, 8);
+  context.fill();
+  context.stroke();
+
+  drawBadge(context, item.key, { x: rect.x + 18, y: rect.y + 18, w: 36, h: 34 }, {
+    color: getTheme().accentColor,
+    font: "900 17px Inter, system-ui, sans-serif",
+  });
+  context.textAlign = "left";
+  context.fillStyle = "#ffffff";
+  context.font = "900 24px Inter, system-ui, sans-serif";
+  context.fillText(index === 0 && state.arcadeInitialized ? "Continue Arcade Run" : item.title, rect.x + 72, rect.y + 36);
+  context.fillStyle = "#b9dbe4";
+  context.font = "800 14px Inter, system-ui, sans-serif";
+  wrapText(context, item.body, rect.x + 72, rect.y + 64, rect.w - 94, 17, 2);
+  context.restore();
+}
+
+function drawPuzzleRun() {
+  drawMenuBackground();
+  const panel = { x: 118, y: 82, w: WIDTH - 236, h: HEIGHT - 164 };
+  const mockLevel = LEVEL_POOL.find((level) => level.trackType === "rings") || TUTORIAL_LEVEL;
+
+  ctx.save();
+  drawPanelRect(panel);
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "900 54px Inter, system-ui, sans-serif";
+  ctx.fillText("Puzzle Run", CENTER.x, panel.y + 70);
+  ctx.fillStyle = "#baf5ff";
+  ctx.font = "800 20px Inter, system-ui, sans-serif";
+  ctx.fillText("Experimental tactical mode", CENTER.x, panel.y + 106);
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#b9dbe4";
+  ctx.font = "800 15px Inter, system-ui, sans-serif";
+  const copyX = panel.x + 58;
+  wrapText(ctx, "Place bonus cards onto track slots before launch.", copyX, panel.y + 156, 310, 20, 2);
+  wrapText(ctx, "Balls have Energy and cannot reach the core without smart routing.", copyX, panel.y + 204, 340, 20, 3);
+  wrapText(ctx, "This mode will reuse the same glass tracks, but upgrades are replaced by card placement.", copyX, panel.y + 272, 360, 20, 3);
+
+  const previewRect = { x: panel.x + 430, y: panel.y + 146, w: 310, h: 310 };
+  drawTrackPreview(ctx, previewRect, mockLevel);
+  drawPuzzleSlots(previewRect);
+
+  const cardNames = ["Booster", "Battery", "x2", "Pierce", "Crack"];
+  const cardW = 116;
+  const gap = 14;
+  const totalW = cardNames.length * cardW + (cardNames.length - 1) * gap;
+  let x = CENTER.x - totalW / 2;
+  for (const name of cardNames) {
+    drawMockPuzzleCard(ctx, { x, y: panel.y + panel.h - 142, w: cardW, h: 82 }, name);
+    x += cardW + gap;
+  }
+
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#baf5ff";
+  ctx.font = "900 14px Inter, system-ui, sans-serif";
+  ctx.fillText("ESC menu     1 Arcade Run     M mute", CENTER.x, panel.y + panel.h - 42);
+  ctx.restore();
+}
+
+function drawMenuBackground() {
+  drawBackground();
+  ctx.save();
+  ctx.globalAlpha = 0.32;
+  const preview = generateTrack(TUTORIAL_LEVEL);
+  ctx.strokeStyle = rgba(TUTORIAL_LEVEL.theme.glassTint, 0.18);
+  ctx.lineWidth = 34;
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  preview.forEach((point, index) => {
+    if (index === 0) ctx.moveTo(point.x, point.y);
+    else ctx.lineTo(point.x, point.y);
+  });
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawPuzzleSlots(rect) {
+  const slots = [
+    { x: 0.18, y: 0.22 },
+    { x: 0.38, y: 0.66 },
+    { x: 0.55, y: 0.34 },
+    { x: 0.72, y: 0.62 },
+    { x: 0.84, y: 0.25 },
+  ];
+  ctx.save();
+  slots.forEach((slot) => {
+    const x = rect.x + rect.w * slot.x;
+    const y = rect.y + rect.h * slot.y;
+    ctx.strokeStyle = "rgba(255, 243, 122, 0.72)";
+    ctx.fillStyle = "rgba(255, 243, 122, 0.1)";
+    ctx.lineWidth = 2;
+    roundRect(x - 16, y - 12, 32, 24, 5);
+    ctx.fill();
+    ctx.stroke();
+  });
+  ctx.restore();
+}
+
+function drawMockPuzzleCard(context, rect, title) {
+  const hovered = state.hoveredInteractive?.type === "puzzleCard" && state.hoveredInteractive.payload.title === title;
+  addInteractiveRect("puzzleCard", rect, { title }, { title, body: "Puzzle Run placeholder card." });
+  context.save();
+  context.fillStyle = hovered ? "rgba(255, 243, 122, 0.22)" : "rgba(9, 19, 27, 0.88)";
+  context.strokeStyle = hovered ? "rgba(255, 243, 122, 0.82)" : "rgba(186, 245, 255, 0.28)";
+  roundRect(rect.x, rect.y, rect.w, rect.h, 8);
+  context.fill();
+  context.stroke();
+  context.fillStyle = "#ffffff";
+  context.font = "900 15px Inter, system-ui, sans-serif";
+  context.textAlign = "center";
+  context.textBaseline = "middle";
+  context.fillText(title, rect.x + rect.w / 2, rect.y + rect.h / 2);
+  context.restore();
 }
 
 function drawBackground() {
@@ -2317,17 +2620,23 @@ function drawMiniStartAndCore(context, startX, startY, coreX, coreY, armored = f
   context.restore();
 }
 
-function drawBadge(context, text, x, y, w, h, color) {
-  context.fillStyle = rgba(color, 0.22);
-  context.strokeStyle = rgba(color, 0.5);
-  roundRect(x, y, w, h, 6);
+function drawBadge(context, text, rect, options = {}) {
+  const color = options.color || getTheme().accentColor;
+  context.save();
+  context.fillStyle = options.fill || rgba(color, 0.22);
+  context.strokeStyle = options.stroke || rgba(color, 0.5);
+  roundRect(rect.x, rect.y, rect.w, rect.h, options.radius ?? 6);
   context.fill();
   context.stroke();
-  context.fillStyle = "#eaffff";
-  context.font = "900 10px Inter, system-ui, sans-serif";
+  context.beginPath();
+  roundRect(rect.x, rect.y, rect.w, rect.h, options.radius ?? 6);
+  context.clip();
+  context.fillStyle = options.textColor || "#eaffff";
+  context.font = fitText(context, text, rect.w - 10, options.font || "900 10px Inter, system-ui, sans-serif", options.minFontSize || 8);
   context.textAlign = "center";
   context.textBaseline = "middle";
-  context.fillText(text, x + w / 2, y + h / 2 + 0.5);
+  context.fillText(text, rect.x + rect.w / 2, rect.y + rect.h / 2 + 0.5);
+  context.restore();
 }
 
 function drawModifierBadges(context, level, x, y, maxWidth) {
@@ -2341,44 +2650,41 @@ function drawModifierBadges(context, level, x, y, maxWidth) {
   }
 
   let cursor = x;
-  const shown = mods.slice(0, 3);
+  const shown = mods.slice(0, 2);
   shown.forEach((modifier) => {
-    const w = Math.min(92, Math.max(54, modifier.name.length * 6 + 16));
+    const label = shortModifierName(modifier.id);
+    const w = Math.min(68, Math.max(48, label.length * 7 + 18));
     if (cursor + w > x + maxWidth) return;
     const rect = { x: cursor, y, w, h: 20 };
     drawModifierBadge(context, modifier, rect);
     cursor += w + 7;
   });
   if (mods.length > shown.length) {
-    context.fillStyle = "#baf5ff";
-    context.font = "900 10px Inter, system-ui, sans-serif";
-    context.fillText(`+${mods.length - shown.length}`, cursor + 9, y + 13);
+    const hidden = mods.slice(shown.length);
+    const rect = { x: cursor, y, w: 34, h: 20 };
+    drawBadge(context, `+${hidden.length}`, rect, { color: getTheme().accentColor });
+    addInteractiveRect("modifierBadge", rect, { id: "more" }, {
+      title: "More modifiers",
+      body: hidden.map((modifier) => `${modifier.name}: ${modifier.shortDescription}`).join(" "),
+    });
   }
 }
 
 function drawModifierBadge(context, modifier, rect) {
-  context.fillStyle = "rgba(12, 29, 38, 0.92)";
-  context.strokeStyle = "rgba(186, 245, 255, 0.34)";
-  roundRect(rect.x, rect.y, rect.w, rect.h, 6);
-  context.fill();
-  context.stroke();
-  context.fillStyle = "#dffbff";
-  context.font = "900 9px Inter, system-ui, sans-serif";
-  context.textAlign = "center";
-  context.textBaseline = "middle";
-  context.fillText(shortModifierName(modifier.name), rect.x + rect.w / 2, rect.y + rect.h / 2 + 0.5);
+  drawBadge(context, shortModifierName(modifier.id), rect, {
+    fill: "rgba(12, 29, 38, 0.92)",
+    stroke: "rgba(186, 245, 255, 0.34)",
+    textColor: "#dffbff",
+    minFontSize: 8,
+  });
   addInteractiveRect("modifierBadge", rect, { id: modifier.id }, {
     title: modifier.name,
     body: `${modifier.shortDescription} ${modifier.numericEffect || ""}`,
   });
 }
 
-function shortModifierName(name) {
-  return name
-    .replace("Multiplier", "Multi")
-    .replace("Chamber", "")
-    .replace("Glass", "")
-    .trim();
+function shortModifierName(id) {
+  return MODIFIER_LABELS[id] || id;
 }
 
 function drawRiskRewardBars(context, x, y, level) {
@@ -2434,12 +2740,15 @@ function drawChamberCard(context, level, rect, index, selected) {
   context.font = "900 15px Inter, system-ui, sans-serif";
   context.fillText(`${index + 1}. ${level.name}`, rect.x + 14, rect.y + 20);
 
-  drawBadge(context, level.archetype, rect.x + rect.w - 76, rect.y + 10, 62, 20, level.theme.accentColor);
+  drawBadge(context, level.archetype, { x: rect.x + rect.w - 78, y: rect.y + 10, w: 64, h: 20 }, {
+    color: level.theme.accentColor,
+    minFontSize: 8,
+  });
   const previewRect = {
     x: rect.x + 14,
-    y: rect.y + 34,
+    y: rect.y + 38,
     w: rect.w - 28,
-    h: Math.max(48, rect.h * 0.38),
+    h: Math.max(48, rect.h * 0.34),
   };
   drawTrackPreview(context, previewRect, level);
 
@@ -2457,10 +2766,10 @@ function drawChamberCard(context, level, rect, index, selected) {
     context,
     `${level.shortPitch}. Track: ${level.trackType}. Reward: ${reward >= 0 ? "+" : ""}${reward}% shards.`,
     rect.x + 14,
-    previewRect.y + previewRect.h + 78,
+    previewRect.y + previewRect.h + 80,
     rect.w - 28,
-    14,
-    3,
+    13,
+    2,
   );
 }
 
@@ -2905,6 +3214,10 @@ function getBrokenGlassCount() {
 }
 
 function updateHud() {
+  if (state.appState !== "arcadeRun" || !state.core) {
+    hud.audioStatus.textContent = audio.muted ? "muted" : "on";
+    return;
+  }
   const broken = getBrokenGlassCount();
   hud.levelIndex.textContent = `${state.room} / ${ACT_ROOMS}`;
   hud.levelName.textContent = state.level.name;
@@ -2987,6 +3300,19 @@ function getWrappedLines(context, text, maxWidth, maxLines = 99) {
 
   if (line && lines.length < maxLines) lines.push(line);
   return lines;
+}
+
+function fitText(context, text, maxWidth, baseFont, minFontSize = 8) {
+  const match = baseFont.match(/(\d+)px/);
+  const baseSize = match ? Number(match[1]) : 10;
+  const prefix = match ? baseFont.slice(0, match.index) : "900 ";
+  const suffix = match ? baseFont.slice(match.index + match[0].length) : " Inter, system-ui, sans-serif";
+  for (let size = baseSize; size >= minFontSize; size -= 1) {
+    const font = `${prefix}${size}px${suffix}`;
+    context.font = font;
+    if (context.measureText(text).width <= maxWidth) return font;
+  }
+  return `${prefix}${minFontSize}px${suffix}`;
 }
 
 function rgba(hex, alpha) {

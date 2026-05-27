@@ -101,6 +101,21 @@ body {
   padding: 16px 18px;
 }
 
+body[data-app-state="mainMenu"] .app,
+body[data-app-state="puzzleRun"] .app {
+  grid-template-columns: 1fr;
+}
+
+body[data-app-state="mainMenu"] .hud,
+body[data-app-state="puzzleRun"] .hud {
+  display: none;
+}
+
+body[data-app-state="mainMenu"] .stage-wrap,
+body[data-app-state="puzzleRun"] .stage-wrap {
+  padding: 0;
+}
+
 canvas {
   display: block;
   width: min(calc(100vh - 32px), calc(100vw - 640px));
@@ -113,6 +128,12 @@ canvas {
   box-shadow:
     0 0 0 1px rgba(255, 255, 255, 0.03),
     0 28px 90px rgba(0, 0, 0, 0.54);
+}
+
+body[data-app-state="mainMenu"] canvas,
+body[data-app-state="puzzleRun"] canvas {
+  width: min(94vw, 94vh);
+  max-height: 94vh;
 }
 
 @media (max-width: 1180px) {
