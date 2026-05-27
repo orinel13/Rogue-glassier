@@ -173,7 +173,82 @@ const MENU_ITEMS = [
     id: "puzzle",
     key: "2",
     title: "Puzzle Run",
-    body: "Experimental: place cards on the track and manage ball energy.",
+    body: "Playable MVP: place cards, manage energy, solve the chamber.",
+  },
+];
+
+const PUZZLE_LEVEL = {
+  id: "puzzleLabI",
+  name: "Puzzle Lab I",
+  trackType: "snake",
+  archetype: "Core",
+  shortPitch: "Place cards on route slots and conserve energy",
+  difficulty: "normal",
+  modifiers: [],
+  segments: 68,
+  coreHp: 120,
+  hpCurve: { start: 8, end: 65, exponent: 1.65 },
+  multipliers: [],
+  glassHpScale: 0.34,
+  coreHpScale: 1,
+  shardMultiplier: 1,
+  theme: {
+    accentColor: "#84f0ff",
+    glassTint: "#a7efff",
+    backgroundGridStrength: 0.2,
+  },
+};
+
+const PUZZLE_SLOT_PROGRESS = [0.12, 0.28, 0.44, 0.62, 0.8];
+
+const PUZZLE_CARDS = [
+  {
+    id: "booster",
+    name: "Booster",
+    label: "BOOST",
+    type: "trigger",
+    color: "#8dfcff",
+    description: "+30 energy and +25% speed for the next route section.",
+  },
+  {
+    id: "battery",
+    name: "Battery",
+    label: "BAT",
+    type: "trigger",
+    color: "#fff37a",
+    description: "+55 energy. Can exceed normal max slightly.",
+  },
+  {
+    id: "split2",
+    name: "Split x2",
+    label: "x2",
+    type: "trigger",
+    color: "#80ffd4",
+    description: "Each ball splits into 2. New balls inherit 75% energy.",
+  },
+  {
+    id: "split3",
+    name: "Split x3",
+    label: "x3",
+    type: "trigger",
+    color: "#cdb8ff",
+    description: "Each ball splits into 3. New balls inherit 55% energy.",
+  },
+  {
+    id: "pierce",
+    name: "Pierce",
+    label: "PIERCE",
+    type: "trigger",
+    color: "#ffffff",
+    description: "Next glass hit ignores 65% of segment HP.",
+  },
+  {
+    id: "crack",
+    name: "Crack",
+    label: "CRACK",
+    type: "prelaunch",
+    color: "#ffb8b8",
+    description: "Weakens glass around this slot before launch.",
   },
 ];
 
@@ -448,6 +523,7 @@ const state = {
   appState: "mainMenu",
   arcadeInitialized: false,
   menuSelection: 0,
+  puzzle: null,
   phase: "idle",
   room: 1,
   level: TUTORIAL_LEVEL,
@@ -528,6 +604,15 @@ function init() {
     if (state.appState === "arcadeRun") handleArcadeClick(event);
     else handleCanvasClick(event);
   });
+  canvas.addEventListener("contextmenu", async (event) => {
+    event.preventDefault();
+    await audio.unlock();
+    state.mouse = getMousePos(event);
+    updateHoverState();
+    if (state.appState === "puzzleRun" && state.hoveredInteractive?.type === "puzzleSlot") {
+      removePuzzleCardFromSlot(state.hoveredInteractive.payload.slotId);
+    }
+  });
 
   requestAnimationFrame(tick);
 }
@@ -551,6 +636,7 @@ function startArcadeRun({ newRun = false } = {}) {
 }
 
 function openPuzzleRun() {
+  startPuzzleRun();
   setAppState("puzzleRun");
   audio.play("uiClick");
 }
@@ -587,7 +673,26 @@ function handlePuzzleKeyDown(event) {
     audio.play("uiClick");
     return;
   }
-  if (event.key === "1") startArcadeRun({ newRun: false });
+  if (event.key.toLowerCase() === "a") startArcadeRun({ newRun: false });
+  if (event.code === "Space") {
+    event.preventDefault();
+    if (state.puzzle?.puzzleState === "planning" || state.puzzle?.puzzleState === "attemptComplete") {
+      startPuzzleAttempt();
+    } else if (state.puzzle?.puzzleState === "victory") {
+      resetPuzzleLevel();
+    }
+  }
+  const number = Number(event.key);
+  if (number >= 1 && number <= PUZZLE_CARDS.length) selectPuzzleCard(PUZZLE_CARDS[number - 1].id);
+  const slotIndex = ["q", "w", "e", "r", "t"].indexOf(event.key.toLowerCase());
+  if (slotIndex >= 0 && state.puzzle?.selectedCardId) {
+    placePuzzleCard(state.puzzle.slots[slotIndex].id, state.puzzle.selectedCardId);
+  }
+  if (event.key.toLowerCase() === "c") clearPuzzlePlacements();
+  if (event.code === "Backspace" || event.code === "Delete") {
+    const hovered = state.hoveredInteractive;
+    if (hovered?.type === "puzzleSlot") removePuzzleCardFromSlot(hovered.payload.slotId);
+  }
 }
 
 function handleArcadeKeyDown(event) {
@@ -632,6 +737,370 @@ function handleArcadeClick(event) {
 function activateMenuItem(index) {
   if (index === 0) startArcadeRun({ newRun: false });
   if (index === 1) openPuzzleRun();
+}
+
+function startPuzzleRun() {
+  if (!state.puzzle) resetPuzzleLevel();
+}
+
+function resetPuzzleLevel() {
+  const level = createPuzzleLevel();
+  state.puzzle = {
+    puzzleState: "planning",
+    level,
+    track: generateTrack(level),
+    slots: createPuzzleSlots(),
+    cards: createPuzzleCards(),
+    selectedCardId: null,
+    segments: [],
+    balls: [],
+    core: null,
+    attempts: 0,
+    bestDepth: 0,
+    bestDamage: 0,
+    report: null,
+    coreFlash: 0,
+    screenShake: 0,
+  };
+  resetPuzzleAttempt({ keepState: true });
+}
+
+function createPuzzleLevel() {
+  return structuredClone(PUZZLE_LEVEL);
+}
+
+function createPuzzleSlots() {
+  return PUZZLE_SLOT_PROGRESS.map((progress, index) => ({
+    id: `slot-${index + 1}`,
+    index,
+    progress,
+    placedCardId: null,
+    flash: 0,
+  }));
+}
+
+function createPuzzleCards() {
+  return structuredClone(PUZZLE_CARDS);
+}
+
+function resetPuzzleAttempt({ keepState = false } = {}) {
+  const puzzle = state.puzzle;
+  puzzle.segments = generateGlassSegments(puzzle.level).map((segment) => ({ ...segment, crackWeak: false }));
+  puzzle.core = {
+    hp: puzzle.level.coreHp,
+    maxHp: puzzle.level.coreHp,
+    broken: false,
+  };
+  puzzle.balls = [];
+  if (!keepState || puzzle.puzzleState !== "attemptComplete") puzzle.report = null;
+  puzzle.coreFlash = 0;
+  puzzle.screenShake = 0;
+  puzzle.slots.forEach((slot) => {
+    slot.flash = 0;
+  });
+  applyPuzzlePrelaunchCards();
+  if (!keepState) puzzle.puzzleState = "planning";
+}
+
+function selectPuzzleCard(cardId) {
+  const puzzle = state.puzzle;
+  if (!puzzle || isPuzzleCardPlaced(cardId)) {
+    audio.play("denied");
+    return;
+  }
+  puzzle.selectedCardId = puzzle.selectedCardId === cardId ? null : cardId;
+  audio.play("uiClick");
+}
+
+function placePuzzleCard(slotId, cardId) {
+  const puzzle = state.puzzle;
+  if (!puzzle || puzzle.puzzleState === "running") {
+    audio.play("denied");
+    return;
+  }
+  const slot = getPuzzleSlot(slotId);
+  if (!slot || slot.placedCardId || isPuzzleCardPlaced(cardId)) {
+    audio.play("denied");
+    return;
+  }
+  slot.placedCardId = cardId;
+  slot.flash = 0.5;
+  puzzle.selectedCardId = null;
+  if (cardId === "crack") resetPuzzleAttempt({ keepState: true });
+  audio.play(cardId === "crack" ? "break" : "upgrade");
+}
+
+function removePuzzleCardFromSlot(slotId) {
+  const puzzle = state.puzzle;
+  if (!puzzle || puzzle.puzzleState === "running") {
+    audio.play("denied");
+    return;
+  }
+  const slot = getPuzzleSlot(slotId);
+  if (!slot?.placedCardId) {
+    audio.play("denied");
+    return;
+  }
+  const removed = slot.placedCardId;
+  slot.placedCardId = null;
+  slot.flash = 0.35;
+  puzzle.selectedCardId = removed;
+  resetPuzzleAttempt({ keepState: true });
+  audio.play("uiClick");
+}
+
+function clearPuzzlePlacements() {
+  const puzzle = state.puzzle;
+  if (!puzzle || puzzle.puzzleState === "running") {
+    audio.play("denied");
+    return;
+  }
+  puzzle.slots.forEach((slot) => {
+    slot.placedCardId = null;
+  });
+  puzzle.selectedCardId = null;
+  resetPuzzleAttempt({ keepState: true });
+  audio.play("uiClick");
+}
+
+function startPuzzleAttempt() {
+  const puzzle = state.puzzle;
+  if (!puzzle || puzzle.puzzleState === "running") {
+    audio.play("denied");
+    return;
+  }
+  resetPuzzleAttempt({ keepState: true });
+  puzzle.puzzleState = "running";
+  puzzle.attempts += 1;
+  puzzle.report = {
+    depthReached: 0,
+    glassBroken: 0,
+    coreDamage: 0,
+    cardsTriggered: {},
+    splitDeaths: 0,
+  };
+  const placedCount = puzzle.slots.filter((slot) => slot.placedCardId).length;
+  puzzle.balls = [createPuzzleBall(0, placedCount === 0 ? 58 : 100, placedCount === 0 ? 20 : 28, 0, "#eaffff")];
+  audio.play("launch");
+}
+
+function applyPuzzlePrelaunchCards() {
+  const puzzle = state.puzzle;
+  for (const slot of puzzle.slots) {
+    if (slot.placedCardId !== "crack") continue;
+    for (const segment of puzzle.segments) {
+      const mid = (segment.progressStart + segment.progressEnd) * 0.5;
+      if (Math.abs(mid - slot.progress) > 0.065) continue;
+      segment.maxHp = Math.max(1, Math.round(segment.maxHp * 0.65));
+      segment.hp = Math.min(segment.hp, segment.maxHp);
+      segment.crackWeak = true;
+    }
+  }
+}
+
+function createPuzzleBall(progress, energy, power, laneOffset, color) {
+  const ball = {
+    progress,
+    previousProgress: progress,
+    baseSpeed: 0.17,
+    speed: 0.17,
+    power,
+    initialPower: power,
+    energy,
+    maxEnergy: 100,
+    alive: true,
+    radius: 8,
+    laneOffset,
+    spreadOffset: 0,
+    color,
+    triggeredSlotIds: new Set(),
+    pierceCharges: 0,
+    speedBoostUntilProgress: 0,
+    trail: [],
+    x: 0,
+    y: 0,
+  };
+  const point = getPuzzleBallRenderPosition(ball);
+  ball.x = point.x;
+  ball.y = point.y;
+  return ball;
+}
+
+function updatePuzzleRun(dt) {
+  if (!state.puzzle) return;
+  updateParticles(dt);
+  updateFloatingTexts(dt);
+  for (const slot of state.puzzle.slots) slot.flash = Math.max(0, slot.flash - dt * 2.6);
+  if (state.puzzle.coreFlash > 0) state.puzzle.coreFlash = Math.max(0, state.puzzle.coreFlash - dt);
+  if (state.puzzle.screenShake > 0) state.puzzle.screenShake = Math.max(0, state.puzzle.screenShake - dt * 18);
+  if (state.puzzle.puzzleState === "running") updatePuzzleBalls(dt);
+}
+
+function updatePuzzleBalls(dt) {
+  const puzzle = state.puzzle;
+  const spawned = [];
+  for (const ball of puzzle.balls) {
+    if (!ball.alive) continue;
+    ball.previousProgress = ball.progress;
+    const boosted = ball.speedBoostUntilProgress > ball.progress;
+    const speed = ball.baseSpeed * (boosted ? 1.25 : 1);
+    const deltaProgress = speed * dt;
+    ball.progress += deltaProgress;
+    ball.energy -= deltaProgress * 95 * (boosted ? 0.75 : 1);
+    ball.spreadOffset *= Math.max(0, 1 - dt * 3);
+    puzzle.report.depthReached = Math.max(puzzle.report.depthReached, ball.progress);
+    puzzle.bestDepth = Math.max(puzzle.bestDepth, ball.progress);
+
+    handlePuzzleSlots(ball, spawned);
+    if (ball.alive) handlePuzzleGlassCollision(ball);
+    if (ball.alive && ball.progress >= 1) damagePuzzleCore(ball);
+    if (ball.alive && ball.energy <= 0) killPuzzleBall(ball, "NO ENERGY");
+
+    const point = getPuzzleBallRenderPosition(ball);
+    ball.x = point.x;
+    ball.y = point.y;
+    ball.trail.push({ x: ball.x, y: ball.y, energy: ball.energy });
+    const maxTrail = Math.round(5 + 12 * clamp(ball.energy / 100, 0, 1));
+    if (ball.trail.length > maxTrail) ball.trail.shift();
+  }
+  puzzle.balls.push(...spawned);
+  puzzle.balls = puzzle.balls.filter((ball) => ball.alive);
+  if (puzzle.balls.length === 0 && puzzle.puzzleState === "running" && !puzzle.core.broken) completePuzzleAttempt();
+}
+
+function handlePuzzleSlots(ball, spawned) {
+  const puzzle = state.puzzle;
+  for (const slot of puzzle.slots) {
+    if (!slot.placedCardId || ball.triggeredSlotIds.has(slot.id)) continue;
+    if (ball.previousProgress <= slot.progress && ball.progress >= slot.progress) {
+      ball.triggeredSlotIds.add(slot.id);
+      const card = getPuzzleCard(slot.placedCardId);
+      triggerPuzzleCard(ball, slot, card, spawned);
+    }
+  }
+}
+
+function triggerPuzzleCard(ball, slot, card, spawned) {
+  if (!card || card.type === "prelaunch") return;
+  const puzzle = state.puzzle;
+  slot.flash = 1;
+  puzzle.report.cardsTriggered[card.label] = (puzzle.report.cardsTriggered[card.label] || 0) + 1;
+  const point = getPuzzleTrackPoint(slot.progress);
+  addFloatingText(point.x, point.y - 28, card.label, card.color, 0.95);
+  burst(point.x, point.y, card.color, 20, 190);
+
+  if (card.id === "booster") {
+    ball.energy = Math.min(ball.maxEnergy, ball.energy + 30);
+    ball.speedBoostUntilProgress = Math.max(ball.speedBoostUntilProgress, ball.progress + 0.16);
+    audio.play("upgrade");
+  } else if (card.id === "battery") {
+    ball.energy = Math.min(140, ball.energy + 55);
+    audio.play("upgrade");
+  } else if (card.id === "pierce") {
+    ball.pierceCharges += 1;
+    audio.play("hit");
+  } else if (card.id === "split2" || card.id === "split3") {
+    const count = card.id === "split2" ? 2 : 3;
+    const energyFactor = card.id === "split2" ? 0.75 : 0.55;
+    const powerFactor = card.id === "split2" ? 0.9 : 0.78;
+    const offsets = getSpreadLaneOffsets(count);
+    ball.alive = false;
+    for (let i = 0; i < count; i += 1) {
+      const clone = createPuzzleBall(
+        ball.progress,
+        Math.max(8, ball.energy * energyFactor),
+        Math.max(3, ball.power * powerFactor),
+        clamp(ball.laneOffset + offsets[i], -MAX_LANE_OFFSET, MAX_LANE_OFFSET),
+        pickBallColor(count, i),
+      );
+      clone.triggeredSlotIds = new Set(ball.triggeredSlotIds);
+      clone.pierceCharges = ball.pierceCharges;
+      clone.speedBoostUntilProgress = ball.speedBoostUntilProgress;
+      clone.spreadOffset = offsets[i] * 0.45;
+      spawned.push(clone);
+    }
+    audio.play("multiplier");
+  }
+}
+
+function handlePuzzleGlassCollision(ball) {
+  let segment = findPuzzleBlockingSegment(ball.progress);
+  while (segment && ball.alive) {
+    const hitPoint = getPuzzleTrackPoint((segment.progressStart + segment.progressEnd) * 0.5);
+    const pierce = ball.pierceCharges > 0;
+    const effectiveHp = pierce ? segment.hp * 0.35 : segment.hp;
+    if (pierce) {
+      ball.pierceCharges -= 1;
+      addFloatingText(hitPoint.x, hitPoint.y - 24, "PIERCE", "#ffffff", 0.8);
+      burst(hitPoint.x, hitPoint.y, "#ffffff", 12, 220);
+    }
+    const damage = Math.min(ball.power, effectiveHp);
+    segment.hp -= pierce ? damage / 0.35 : damage;
+    ball.energy -= 0.25 + damage * 0.01;
+    if (segment.hp <= 0 || damage >= effectiveHp) {
+      segment.hp = 0;
+      segment.broken = true;
+      puzzleIncrementBroken(segment);
+      ball.power = Math.max(1, ball.power - effectiveHp * 0.009 - 0.03);
+      ball.energy -= 0.2;
+      addFloatingText(hitPoint.x, hitPoint.y - 16, "BREAK", "#baf5ff", 0.68);
+      burst(hitPoint.x, hitPoint.y, "#baf5ff", segment.crackWeak ? 28 : 18, 170);
+      audio.play("break");
+      segment = findPuzzleBlockingSegment(ball.progress);
+      continue;
+    }
+    addFloatingText(hitPoint.x, hitPoint.y - 14, `-${Math.ceil(damage)}`, "#ffb6b6", 0.65);
+    burst(hitPoint.x, hitPoint.y, "#ffb6b6", 8, 120);
+    audio.play("hit");
+    ball.alive = false;
+  }
+}
+
+function puzzleIncrementBroken(segment) {
+  if (!segment.countedBroken) {
+    segment.countedBroken = true;
+    state.puzzle.report.glassBroken += 1;
+  }
+}
+
+function damagePuzzleCore(ball) {
+  const puzzle = state.puzzle;
+  const energyRatio = clamp(ball.energy / Math.max(1, ball.maxEnergy), 0, 1.4);
+  const damage = ball.power * (0.65 + energyRatio * 0.7) * 6;
+  const applied = Math.min(damage, puzzle.core.hp);
+  puzzle.core.hp = Math.max(0, puzzle.core.hp - damage);
+  puzzle.report.coreDamage += applied;
+  puzzle.bestDamage = Math.max(puzzle.bestDamage, puzzle.level.coreHp - puzzle.core.hp);
+  ball.alive = false;
+  const corePoint = getPuzzleTrackPoint(1);
+  addFloatingText(corePoint.x, corePoint.y - 38, `CORE -${Math.ceil(applied)}`, "#ffffff", 1);
+  burst(corePoint.x, corePoint.y, "#ffffff", 36, 260);
+  puzzle.coreFlash = 0.8;
+  puzzle.screenShake = 5;
+  audio.play("coreHit");
+  if (puzzle.core.hp <= 0) {
+    puzzle.core.hp = 0;
+    puzzle.core.broken = true;
+    puzzle.puzzleState = "victory";
+    burst(corePoint.x, corePoint.y, "#fff37a", 100, 380);
+    puzzle.screenShake = 13;
+    audio.play("victory");
+  }
+}
+
+function killPuzzleBall(ball, label) {
+  ball.alive = false;
+  addFloatingText(ball.x, ball.y - 18, label, "#ffb6b6", 0.7);
+  burst(ball.x, ball.y, "#ffb6b6", 10, 110);
+  audio.play("denied");
+}
+
+function completePuzzleAttempt() {
+  const puzzle = state.puzzle;
+  puzzle.report.depthReached = Math.min(1, puzzle.report.depthReached);
+  puzzle.bestDepth = Math.max(puzzle.bestDepth, puzzle.report.depthReached);
+  puzzle.puzzleState = "attemptComplete";
+  audio.play("denied");
 }
 
 function handleSpace() {
@@ -699,6 +1168,25 @@ function handleCanvasClick() {
     state.menuSelection = hovered.payload.index;
     activateMenuItem(hovered.payload.index);
     return;
+  }
+
+  if (state.appState === "puzzleRun") {
+    if (hovered.type === "puzzleCard") {
+      selectPuzzleCard(hovered.payload.cardId);
+      return;
+    }
+    if (hovered.type === "puzzleSlot") {
+      const slot = getPuzzleSlot(hovered.payload.slotId);
+      if (slot?.placedCardId) removePuzzleCardFromSlot(slot.id);
+      else if (state.puzzle?.selectedCardId) placePuzzleCard(slot.id, state.puzzle.selectedCardId);
+      else audio.play("denied");
+      return;
+    }
+    if (hovered.type === "puzzleAction") {
+      if (hovered.payload.action === "launch") startPuzzleAttempt();
+      if (hovered.payload.action === "clear") clearPuzzlePlacements();
+      return;
+    }
   }
 
   if (state.appState !== "arcadeRun") return;
@@ -1141,6 +1629,7 @@ function tick(time) {
   state.lastTime = time;
 
   if (state.appState === "arcadeRun") updateArcadeRun(dt);
+  if (state.appState === "puzzleRun") updatePuzzleRun(dt);
   draw();
   requestAnimationFrame(tick);
 }
@@ -1721,6 +2210,9 @@ function drawMainMenu() {
   ctx.fillStyle = "#baf5ff";
   ctx.font = "900 14px Inter, system-ui, sans-serif";
   ctx.fillText(`M ${audio.muted ? "unmute" : "mute"} audio`, CENTER.x, panel.y + panel.h - 54);
+  ctx.fillStyle = "#42656f";
+  ctx.font = "900 11px Inter, system-ui, sans-serif";
+  ctx.fillText("v0.9", panel.x + panel.w - 28, panel.y + panel.h - 18);
   ctx.restore();
 }
 
@@ -1752,47 +2244,26 @@ function drawMenuItem(context, item, rect, index) {
 }
 
 function drawPuzzleRun() {
-  drawMenuBackground();
-  const panel = { x: 118, y: 82, w: WIDTH - 236, h: HEIGHT - 164 };
-  const mockLevel = LEVEL_POOL.find((level) => level.trackType === "rings") || TUTORIAL_LEVEL;
-
+  if (!state.puzzle) resetPuzzleLevel();
+  const puzzle = state.puzzle;
+  const shake = getPuzzleShakeOffset();
   ctx.save();
-  drawPanelRect(panel);
-  ctx.textAlign = "center";
-  ctx.fillStyle = "#ffffff";
-  ctx.font = "900 54px Inter, system-ui, sans-serif";
-  ctx.fillText("Puzzle Run", CENTER.x, panel.y + 70);
-  ctx.fillStyle = "#baf5ff";
-  ctx.font = "800 20px Inter, system-ui, sans-serif";
-  ctx.fillText("Experimental tactical mode", CENTER.x, panel.y + 106);
-
-  ctx.textAlign = "left";
-  ctx.fillStyle = "#b9dbe4";
-  ctx.font = "800 15px Inter, system-ui, sans-serif";
-  const copyX = panel.x + 58;
-  wrapText(ctx, "Place bonus cards onto track slots before launch.", copyX, panel.y + 156, 310, 20, 2);
-  wrapText(ctx, "Balls have Energy and cannot reach the core without smart routing.", copyX, panel.y + 204, 340, 20, 3);
-  wrapText(ctx, "This mode will reuse the same glass tracks, but upgrades are replaced by card placement.", copyX, panel.y + 272, 360, 20, 3);
-
-  const previewRect = { x: panel.x + 430, y: panel.y + 146, w: 310, h: 310 };
-  drawTrackPreview(ctx, previewRect, mockLevel);
-  drawPuzzleSlots(previewRect);
-
-  const cardNames = ["Booster", "Battery", "x2", "Pierce", "Crack"];
-  const cardW = 116;
-  const gap = 14;
-  const totalW = cardNames.length * cardW + (cardNames.length - 1) * gap;
-  let x = CENTER.x - totalW / 2;
-  for (const name of cardNames) {
-    drawMockPuzzleCard(ctx, { x, y: panel.y + panel.h - 142, w: cardW, h: 82 }, name);
-    x += cardW + gap;
-  }
-
-  ctx.textAlign = "center";
-  ctx.fillStyle = "#baf5ff";
-  ctx.font = "900 14px Inter, system-ui, sans-serif";
-  ctx.fillText("ESC menu     1 Arcade Run     M mute", CENTER.x, panel.y + panel.h - 42);
+  ctx.translate(shake.x, shake.y);
+  drawPuzzleBackground();
+  drawPuzzleTrack();
+  drawPuzzleGlass();
+  drawPuzzleSlots();
+  drawPuzzleCore();
+  drawPuzzleBallTrails();
+  drawPuzzleBalls();
+  drawParticles();
+  drawFloatingTexts();
   ctx.restore();
+
+  drawPuzzleHud();
+  drawPuzzleCards();
+  if (puzzle.puzzleState === "attemptComplete") drawPuzzleAttemptReport();
+  if (puzzle.puzzleState === "victory") drawPuzzleVictory();
 }
 
 function drawMenuBackground() {
@@ -1812,43 +2283,354 @@ function drawMenuBackground() {
   ctx.restore();
 }
 
-function drawPuzzleSlots(rect) {
-  const slots = [
-    { x: 0.18, y: 0.22 },
-    { x: 0.38, y: 0.66 },
-    { x: 0.55, y: 0.34 },
-    { x: 0.72, y: 0.62 },
-    { x: 0.84, y: 0.25 },
-  ];
-  ctx.save();
-  slots.forEach((slot) => {
-    const x = rect.x + rect.w * slot.x;
-    const y = rect.y + rect.h * slot.y;
-    ctx.strokeStyle = "rgba(255, 243, 122, 0.72)";
-    ctx.fillStyle = "rgba(255, 243, 122, 0.1)";
-    ctx.lineWidth = 2;
-    roundRect(x - 16, y - 12, 32, 24, 5);
-    ctx.fill();
+function drawPuzzleBackground() {
+  const theme = state.puzzle.level.theme;
+  const accent = hexToRgb(theme.accentColor);
+  const gradient = ctx.createRadialGradient(CENTER.x, CENTER.y, 40, CENTER.x, CENTER.y, 540);
+  gradient.addColorStop(0, `rgba(${accent.r}, ${accent.g}, ${accent.b}, 0.2)`);
+  gradient.addColorStop(0.45, "#071017");
+  gradient.addColorStop(1, "#030509");
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, WIDTH, HEIGHT);
+  ctx.strokeStyle = `rgba(${accent.r}, ${accent.g}, ${accent.b}, 0.1)`;
+  ctx.lineWidth = 1;
+  for (let x = 58; x < WIDTH; x += 70) {
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x, HEIGHT);
     ctx.stroke();
+  }
+  for (let y = 58; y < HEIGHT; y += 70) {
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(WIDTH, y);
+    ctx.stroke();
+  }
+}
+
+function drawPuzzleTrack() {
+  const puzzle = state.puzzle;
+  ctx.save();
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.strokeStyle = rgba(puzzle.level.theme.glassTint, 0.16);
+  ctx.lineWidth = TRACK_WIDTH + 20;
+  ctx.beginPath();
+  puzzle.track.forEach((point, index) => {
+    if (index === 0) ctx.moveTo(point.x, point.y);
+    else ctx.lineTo(point.x, point.y);
   });
+  ctx.stroke();
+  ctx.strokeStyle = rgba(puzzle.level.theme.glassTint, 0.32);
+  ctx.lineWidth = TRACK_WIDTH;
+  ctx.stroke();
   ctx.restore();
 }
 
-function drawMockPuzzleCard(context, rect, title) {
-  const hovered = state.hoveredInteractive?.type === "puzzleCard" && state.hoveredInteractive.payload.title === title;
-  addInteractiveRect("puzzleCard", rect, { title }, { title, body: "Puzzle Run placeholder card." });
+function drawPuzzleGlass() {
+  const puzzle = state.puzzle;
+  for (const segment of puzzle.segments) {
+    if (segment.broken) continue;
+    const integrity = clamp(segment.hp / segment.maxHp, 0, 1);
+    const cracked = segment.crackWeak || integrity < 0.72;
+    ctx.save();
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.strokeStyle = segment.crackWeak
+      ? `rgba(255, 184, 184, ${0.22 + integrity * 0.36})`
+      : rgba(puzzle.level.theme.glassTint, 0.28 + integrity * 0.46);
+    ctx.lineWidth = TRACK_WIDTH * (0.44 + integrity * 0.14);
+    ctx.beginPath();
+    for (let i = 0; i <= 5; i += 1) {
+      const p = getPuzzleTrackPoint(lerp(segment.progressStart, segment.progressEnd, i / 5));
+      if (i === 0) ctx.moveTo(p.x, p.y);
+      else ctx.lineTo(p.x, p.y);
+    }
+    ctx.stroke();
+    if (cracked) drawPuzzleCracks(segment);
+    ctx.restore();
+  }
+}
+
+function drawPuzzleCracks(segment) {
+  const mid = (segment.progressStart + segment.progressEnd) * 0.5;
+  const point = getPuzzleTrackPoint(mid);
+  const normal = getPuzzleTrackNormal(mid);
+  ctx.strokeStyle = "rgba(255, 255, 255, 0.46)";
+  ctx.lineWidth = 1.2;
+  segment.cracks.slice(0, segment.crackWeak ? 4 : 2).forEach((crack) => {
+    const spread = crack.b * TRACK_WIDTH * 0.2;
+    ctx.beginPath();
+    ctx.moveTo(point.x + normal.x * spread - 7, point.y + normal.y * spread - 4);
+    ctx.lineTo(point.x + normal.x * (spread + 6), point.y + normal.y * (spread - 4));
+    ctx.stroke();
+  });
+}
+
+function drawPuzzleSlots() {
+  const puzzle = state.puzzle;
+  for (const slot of puzzle.slots) {
+    const point = getPuzzleTrackPoint(slot.progress);
+    const card = getPuzzleCard(slot.placedCardId);
+    const selectedTarget = !slot.placedCardId && puzzle.selectedCardId;
+    const hovered = state.hoveredInteractive?.type === "puzzleSlot" && state.hoveredInteractive.payload.slotId === slot.id;
+    const radius = 16 + slot.flash * 6 + (hovered ? 2 : 0);
+    const tooltip = card
+      ? { title: card.name, body: card.description }
+      : { title: `Empty slot ${slot.index + 1}`, body: "Click a selected card to place it here." };
+    addInteractiveRect("puzzleSlot", { x: point.x - 22, y: point.y - 22, w: 44, h: 44 }, { slotId: slot.id }, tooltip);
+    ctx.save();
+    ctx.shadowBlur = slot.flash > 0 || selectedTarget || hovered ? 18 : 8;
+    ctx.shadowColor = card?.color || "#baf5ff";
+    ctx.fillStyle = card ? rgba(card.color, 0.24) : "rgba(6, 18, 27, 0.72)";
+    ctx.strokeStyle = card ? rgba(card.color, 0.88) : "rgba(186, 245, 255, 0.58)";
+    ctx.lineWidth = selectedTarget || hovered ? 3 : 2;
+    ctx.beginPath();
+    ctx.arc(point.x, point.y, radius, 0, TAU);
+    ctx.fill();
+    ctx.stroke();
+    if (card) {
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = "#ffffff";
+      ctx.font = fitText(ctx, card.label, 31, "900 10px Inter, system-ui, sans-serif", 7);
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(card.label, point.x, point.y + 0.5);
+    }
+    ctx.restore();
+  }
+  if (puzzle.selectedCardId) drawSelectedCardConnection();
+}
+
+function drawSelectedCardConnection() {
+  const puzzle = state.puzzle;
+  const openSlot = puzzle.slots.find((slot) => !slot.placedCardId);
+  if (!openSlot) return;
+  const card = getPuzzleCard(puzzle.selectedCardId);
+  const point = getPuzzleTrackPoint(openSlot.progress);
+  ctx.save();
+  ctx.strokeStyle = rgba(card.color, 0.34);
+  ctx.setLineDash([8, 8]);
+  ctx.lineWidth = 1.6;
+  ctx.beginPath();
+  ctx.moveTo(state.mouse.x, state.mouse.y);
+  ctx.lineTo(point.x, point.y);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawPuzzleCore() {
+  const puzzle = state.puzzle;
+  const point = getPuzzleTrackPoint(1);
+  const damageRatio = 1 - puzzle.core.hp / puzzle.core.maxHp;
+  const pulse = Math.sin(performance.now() * (0.005 + damageRatio * 0.006)) * 0.5 + 0.5;
+  ctx.save();
+  ctx.shadowBlur = 22 + puzzle.coreFlash * 36;
+  ctx.shadowColor = "#ffffff";
+  ctx.fillStyle = `rgba(255, 255, 255, ${0.78 + pulse * 0.18})`;
+  ctx.beginPath();
+  ctx.arc(point.x, point.y, 22 + damageRatio * 5 + puzzle.coreFlash * 10, 0, TAU);
+  ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = "#02060a";
+  ctx.beginPath();
+  ctx.arc(point.x, point.y, 11, 0, TAU);
+  ctx.fill();
+  ctx.strokeStyle = "rgba(186, 245, 255, 0.8)";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(point.x, point.y, 29, -Math.PI / 2, -Math.PI / 2 + TAU * (puzzle.core.hp / puzzle.core.maxHp));
+  ctx.stroke();
+  ctx.fillStyle = "#eaffff";
+  ctx.font = "900 10px Inter, system-ui, sans-serif";
+  ctx.textAlign = "center";
+  ctx.fillText("CORE", point.x, point.y + 43);
+  ctx.restore();
+}
+
+function drawPuzzleBallTrails() {
+  for (const ball of state.puzzle.balls) {
+    if (ball.trail.length < 2) continue;
+    const energyRatio = clamp(ball.energy / 100, 0.15, 1);
+    ctx.save();
+    ctx.strokeStyle = rgba(ball.color, 0.24 + energyRatio * 0.24);
+    ctx.lineWidth = Math.max(2, ball.radius * energyRatio);
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ball.trail.forEach((point, index) => {
+      if (index === 0) ctx.moveTo(point.x, point.y);
+      else ctx.lineTo(point.x, point.y);
+    });
+    ctx.stroke();
+    ctx.restore();
+  }
+}
+
+function drawPuzzleBalls() {
+  for (const ball of state.puzzle.balls) {
+    const energyRatio = clamp(ball.energy / 100, 0.18, 1.25);
+    ctx.save();
+    ctx.globalAlpha = clamp(0.45 + energyRatio * 0.55, 0.45, 1);
+    ctx.shadowBlur = 14 * energyRatio;
+    ctx.shadowColor = ball.color;
+    ctx.fillStyle = ball.color;
+    ctx.beginPath();
+    ctx.arc(ball.x, ball.y, ball.radius, 0, TAU);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = "rgba(2, 7, 12, 0.7)";
+    ctx.fillRect(ball.x - 16, ball.y - 24, 32, 4);
+    ctx.fillStyle = energyRatio < 0.3 ? "#ffb6b6" : "#80ffd4";
+    ctx.fillRect(ball.x - 16, ball.y - 24, 32 * clamp(ball.energy / 100, 0, 1), 4);
+    ctx.restore();
+  }
+}
+
+function drawPuzzleHud() {
+  const puzzle = state.puzzle;
+  const panel = { x: WIDTH - 268, y: 18, w: 250, h: 314 };
+  ctx.save();
+  ctx.fillStyle = "rgba(4, 9, 14, 0.82)";
+  ctx.strokeStyle = "rgba(132, 220, 255, 0.32)";
+  roundRect(panel.x, panel.y, panel.w, panel.h, 8);
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "900 22px Inter, system-ui, sans-serif";
+  ctx.textAlign = "left";
+  ctx.fillText("Puzzle Run", panel.x + 16, panel.y + 30);
+  const rows = [
+    ["Level", puzzle.level.name],
+    ["State", formatPuzzleState(puzzle.puzzleState)],
+    ["Attempts", puzzle.attempts],
+    ["Active balls", puzzle.balls.length],
+    ["Best depth", formatPercent(puzzle.bestDepth)],
+    ["Core HP", `${Math.ceil(puzzle.core.hp)} / ${puzzle.core.maxHp}`],
+    ["Cards placed", `${puzzle.slots.filter((slot) => slot.placedCardId).length} / ${puzzle.slots.length}`],
+    ["Selected", getPuzzleCard(puzzle.selectedCardId)?.name || "none"],
+  ];
+  let y = panel.y + 64;
+  ctx.font = "800 12px Inter, system-ui, sans-serif";
+  for (const [label, value] of rows) {
+    ctx.fillStyle = "#93aeb9";
+    ctx.fillText(label, panel.x + 16, y);
+    ctx.fillStyle = "#eaffff";
+    ctx.textAlign = "right";
+    ctx.fillText(String(value), panel.x + panel.w - 16, y);
+    ctx.textAlign = "left";
+    y += 25;
+  }
+  ctx.fillStyle = "#baf5ff";
+  ctx.font = "800 11px Inter, system-ui, sans-serif";
+  wrapText(ctx, "Click card, click slot. SPACE launch. C clear. ESC menu. M mute.", panel.x + 16, panel.y + panel.h - 42, panel.w - 32, 14, 3);
+  ctx.restore();
+}
+
+function drawPuzzleCards() {
+  const puzzle = state.puzzle;
+  const cardW = 126;
+  const cardH = 96;
+  const gap = 13;
+  const totalW = PUZZLE_CARDS.length * cardW + (PUZZLE_CARDS.length - 1) * gap;
+  let x = CENTER.x - totalW / 2;
+  const y = HEIGHT - cardH - 18;
+  for (const card of puzzle.cards) {
+    drawPuzzleCard(ctx, card, { x, y, w: cardW, h: cardH });
+    x += cardW + gap;
+  }
+  drawPuzzleActionButtons(y - 44);
+}
+
+function drawPuzzleCard(context, card, rect) {
+  const puzzle = state.puzzle;
+  const placed = isPuzzleCardPlaced(card.id);
+  const selected = puzzle.selectedCardId === card.id;
+  const hovered = state.hoveredInteractive?.type === "puzzleCard" && state.hoveredInteractive.payload.cardId === card.id;
+  addInteractiveRect("puzzleCard", rect, { cardId: card.id }, { title: card.name, body: card.description });
   context.save();
-  context.fillStyle = hovered ? "rgba(255, 243, 122, 0.22)" : "rgba(9, 19, 27, 0.88)";
-  context.strokeStyle = hovered ? "rgba(255, 243, 122, 0.82)" : "rgba(186, 245, 255, 0.28)";
+  context.globalAlpha = placed ? 0.44 : 1;
+  context.fillStyle = selected || hovered ? rgba(card.color, 0.24) : "rgba(9, 19, 27, 0.9)";
+  context.strokeStyle = selected ? "#ffffff" : rgba(card.color, hovered ? 0.8 : 0.36);
+  context.lineWidth = selected ? 2.4 : 1.3;
   roundRect(rect.x, rect.y, rect.w, rect.h, 8);
   context.fill();
   context.stroke();
   context.fillStyle = "#ffffff";
-  context.font = "900 15px Inter, system-ui, sans-serif";
-  context.textAlign = "center";
-  context.textBaseline = "middle";
-  context.fillText(title, rect.x + rect.w / 2, rect.y + rect.h / 2);
+  context.font = "900 14px Inter, system-ui, sans-serif";
+  context.textAlign = "left";
+  context.fillText(`${PUZZLE_CARDS.findIndex((item) => item.id === card.id) + 1}. ${card.name}`, rect.x + 10, rect.y + 21);
+  drawBadge(context, card.label, { x: rect.x + 10, y: rect.y + 31, w: rect.w - 20, h: 24 }, {
+    color: card.color,
+    minFontSize: 8,
+  });
+  context.fillStyle = "#b9dbe4";
+  context.font = "700 10px Inter, system-ui, sans-serif";
+  wrapText(context, placed ? "placed" : card.description, rect.x + 10, rect.y + 68, rect.w - 20, 12, 2);
   context.restore();
+}
+
+function drawPuzzleActionButtons(y) {
+  const launch = { x: WIDTH - 224, y, w: 96, h: 30 };
+  const clear = { x: WIDTH - 118, y, w: 78, h: 30 };
+  addInteractiveRect("puzzleAction", launch, { action: "launch" }, { title: "Launch", body: "Start or retry the current Puzzle attempt." });
+  addInteractiveRect("puzzleAction", clear, { action: "clear" }, { title: "Clear", body: "Remove all placed cards." });
+  drawBadge(ctx, "SPACE", launch, { color: "#84f0ff", font: "900 12px Inter, system-ui, sans-serif" });
+  drawBadge(ctx, "C clear", clear, { color: "#ffb8b8", font: "900 12px Inter, system-ui, sans-serif" });
+}
+
+function drawPuzzleAttemptReport() {
+  const puzzle = state.puzzle;
+  const report = puzzle.report;
+  if (!report) return;
+  const panel = { x: 18, y: 350, w: 292, h: 230 };
+  ctx.save();
+  drawPanelRect(panel);
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "900 23px Inter, system-ui, sans-serif";
+  ctx.textAlign = "left";
+  ctx.fillText("ATTEMPT FAILED", panel.x + 18, panel.y + 34);
+  const rows = [
+    ["Depth reached", formatPercent(report.depthReached)],
+    ["Best depth", formatPercent(puzzle.bestDepth)],
+    ["Glass broken", report.glassBroken],
+    ["Core damage", Math.ceil(report.coreDamage)],
+    ["Cards triggered", formatMultiplierReport(report.cardsTriggered)],
+  ];
+  let y = panel.y + 66;
+  ctx.font = "800 12px Inter, system-ui, sans-serif";
+  for (const [label, value] of rows) {
+    ctx.fillStyle = "#93aeb9";
+    ctx.fillText(label, panel.x + 18, y);
+    ctx.fillStyle = "#eaffff";
+    ctx.textAlign = "right";
+    ctx.fillText(String(value), panel.x + panel.w - 18, y);
+    ctx.textAlign = "left";
+    y += 22;
+  }
+  ctx.fillStyle = "#fff37a";
+  ctx.font = "800 12px Inter, system-ui, sans-serif";
+  wrapText(ctx, getPuzzleHint(report), panel.x + 18, panel.y + panel.h - 58, panel.w - 36, 15, 3);
+  ctx.restore();
+}
+
+function drawPuzzleVictory() {
+  const panel = { x: 210, y: 286, w: WIDTH - 420, h: 210 };
+  ctx.save();
+  ctx.fillStyle = "rgba(2, 5, 9, 0.52)";
+  ctx.fillRect(0, 0, WIDTH, HEIGHT);
+  drawPanelRect(panel);
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#ffffff";
+  ctx.shadowBlur = 28;
+  ctx.shadowColor = "#ffffff";
+  ctx.font = "900 48px Inter, system-ui, sans-serif";
+  ctx.fillText("PUZZLE SOLVED", CENTER.x, panel.y + 74);
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = "#baf5ff";
+  ctx.font = "800 16px Inter, system-ui, sans-serif";
+  ctx.fillText(`Attempts: ${state.puzzle.attempts}   Best depth: ${formatPercent(state.puzzle.bestDepth)}`, CENTER.x, panel.y + 118);
+  ctx.fillText("SPACE reset puzzle     ESC menu", CENTER.x, panel.y + 158);
+  ctx.restore();
 }
 
 function drawBackground() {
@@ -3087,14 +3869,64 @@ function getShakeOffset() {
   };
 }
 
+function getPuzzleShakeOffset() {
+  if (!state.puzzle || state.puzzle.screenShake <= 0) return { x: 0, y: 0 };
+  return {
+    x: (Math.random() * 2 - 1) * state.puzzle.screenShake,
+    y: (Math.random() * 2 - 1) * state.puzzle.screenShake,
+  };
+}
+
+function getPuzzleCard(cardId) {
+  if (!cardId) return null;
+  return state.puzzle?.cards.find((card) => card.id === cardId) || PUZZLE_CARDS.find((card) => card.id === cardId) || null;
+}
+
+function getPuzzleSlot(slotId) {
+  return state.puzzle?.slots.find((slot) => slot.id === slotId) || null;
+}
+
+function isPuzzleCardPlaced(cardId) {
+  return Boolean(state.puzzle?.slots.some((slot) => slot.placedCardId === cardId));
+}
+
+function findPuzzleBlockingSegment(progress) {
+  return state.puzzle.segments.find(
+    (segment) => !segment.broken && progress >= segment.progressStart && progress <= segment.progressEnd,
+  );
+}
+
+function formatPuzzleState(puzzleState) {
+  return {
+    planning: "Planning",
+    running: "Running",
+    attemptComplete: "Attempt Complete",
+    victory: "Solved",
+  }[puzzleState] || puzzleState;
+}
+
+function getPuzzleHint(report) {
+  if (report.depthReached < 0.35) return "You need early power or energy.";
+  if ((report.cardsTriggered.x2 || 0) + (report.cardsTriggered.x3 || 0) > 0 && report.depthReached < 0.75) {
+    return "Splits reduce energy. Add Battery or Booster after splitting.";
+  }
+  if (report.depthReached >= 1 && report.coreDamage > 0) return "Try Pierce or conserve energy before core.";
+  return "Adjust cards and press SPACE to retry.";
+}
+
 function getTrackPoint(progress) {
   const t = clamp(progress, 0, 1);
-  const scaled = t * (state.track.length - 1);
+  return getPointOnTrack(state.track, t);
+}
+
+function getPointOnTrack(track, progress) {
+  const t = clamp(progress, 0, 1);
+  const scaled = t * (track.length - 1);
   const index = Math.floor(scaled);
-  const nextIndex = Math.min(index + 1, state.track.length - 1);
+  const nextIndex = Math.min(index + 1, track.length - 1);
   const local = scaled - index;
-  const a = state.track[index];
-  const b = state.track[nextIndex];
+  const a = track[index];
+  const b = track[nextIndex];
 
   return {
     x: lerp(a.x, b.x, local),
@@ -3124,9 +3956,38 @@ function getTrackNormal(progress) {
   return { x: -tangent.y, y: tangent.x };
 }
 
+function getPuzzleTrackPoint(progress) {
+  return getPointOnTrack(state.puzzle.track, progress);
+}
+
+function getPuzzleTrackTangent(progress) {
+  const before = getPuzzleTrackPoint(progress - 0.002);
+  const after = getPuzzleTrackPoint(progress + 0.002);
+  const dx = after.x - before.x;
+  const dy = after.y - before.y;
+  const length = Math.hypot(dx, dy) || 1;
+  return { x: dx / length, y: dy / length };
+}
+
+function getPuzzleTrackNormal(progress) {
+  const tangent = getPuzzleTrackTangent(progress);
+  return { x: -tangent.y, y: tangent.x };
+}
+
 function getBallRenderPosition(ball) {
   const point = getTrackPoint(Math.min(ball.progress, 1));
   const normal = getTrackNormal(ball.progress);
+  const fade = smoothstep(clamp(ball.progress / 0.045, 0, 1));
+  const offset = clamp(ball.laneOffset * fade + ball.spreadOffset, -MAX_LANE_OFFSET, MAX_LANE_OFFSET);
+  return {
+    x: point.x + normal.x * offset,
+    y: point.y + normal.y * offset,
+  };
+}
+
+function getPuzzleBallRenderPosition(ball) {
+  const point = getPuzzleTrackPoint(Math.min(ball.progress, 1));
+  const normal = getPuzzleTrackNormal(ball.progress);
   const fade = smoothstep(clamp(ball.progress / 0.045, 0, 1));
   const offset = clamp(ball.laneOffset * fade + ball.spreadOffset, -MAX_LANE_OFFSET, MAX_LANE_OFFSET);
   return {
