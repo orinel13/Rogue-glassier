@@ -173,7 +173,7 @@ const MENU_ITEMS = [
     id: "puzzle",
     key: "2",
     title: "Puzzle Run",
-    body: "Playable MVP: place cards, manage energy, solve the chamber.",
+    body: "Tactical card act, persistent damage, Integrity.",
   },
 ];
 
@@ -183,12 +183,17 @@ const PUZZLE_ROOMS = [
     name: "Puzzle Lab I",
     trackType: "snake",
     difficulty: "normal",
+    archetype: "Stable",
+    shortPitch: "Balanced planning chamber.",
     slotProgress: [0.12, 0.28, 0.44, 0.62, 0.8],
     segments: 68,
-    coreHp: 118,
+    coreHp: 115,
     coreArmor: 0,
     hpCurve: { start: 8, end: 48, exponent: 1.58 },
     glassHpScale: 0.23,
+    modifiers: [],
+    rewardTierBias: "normal",
+    integrityLossBase: 7,
     theme: { accentColor: "#84f0ff", glassTint: "#a7efff", backgroundGridStrength: 0.2 },
   },
   {
@@ -196,13 +201,18 @@ const PUZZLE_ROOMS = [
     name: "Battery Spiral",
     trackType: "spiral",
     difficulty: "risky",
+    archetype: "Energy",
+    shortPitch: "Long route. Energy cards matter.",
     turns: 3.15,
     slotProgress: [0.1, 0.26, 0.43, 0.64, 0.82],
-    segments: 74,
+    segments: 72,
     coreHp: 155,
     coreArmor: 0,
     hpCurve: { start: 10, end: 58, exponent: 1.66 },
     glassHpScale: 0.25,
+    modifiers: ["energyDrain"],
+    rewardTierBias: "risky",
+    integrityLossBase: 10,
     theme: { accentColor: "#fff37a", glassTint: "#b7f7ff", backgroundGridStrength: 0.22 },
   },
   {
@@ -210,13 +220,164 @@ const PUZZLE_ROOMS = [
     name: "Armored Knot",
     trackType: "rings",
     difficulty: "elite",
-    slotProgress: [0.09, 0.22, 0.38, 0.55, 0.72, 0.88],
-    segments: 78,
+    archetype: "Core",
+    shortPitch: "Small hits are reduced.",
+    slotProgress: [0.14, 0.3, 0.46, 0.62, 0.78, 0.9],
+    segments: 76,
     coreHp: 190,
-    coreArmor: 6,
+    coreArmor: 5,
     hpCurve: { start: 13, end: 62, exponent: 1.68, midBoost: 5 },
     glassHpScale: 0.27,
+    modifiers: ["armoredCore"],
+    rewardTierBias: "elite",
+    integrityLossBase: 14,
     theme: { accentColor: "#cdb8ff", glassTint: "#d7f4ff", backgroundGridStrength: 0.25 },
+  },
+  {
+    id: "crackedGallery",
+    name: "Cracked Gallery",
+    trackType: "snake",
+    difficulty: "normal",
+    archetype: "Stable",
+    shortPitch: "Weak opening, tougher finish.",
+    slotProgress: [0.12, 0.25, 0.42, 0.6, 0.78],
+    segments: 70,
+    coreHp: 135,
+    coreArmor: 0,
+    hpCurve: { start: 8, end: 52, exponent: 1.6 },
+    glassHpScale: 0.24,
+    modifiers: ["crackedPath"],
+    rewardTierBias: "normal",
+    integrityLossBase: 7,
+    theme: { accentColor: "#9fffd5", glassTint: "#b7f7ff", backgroundGridStrength: 0.2 },
+  },
+  {
+    id: "denseCoreLoop",
+    name: "Dense Core Loop",
+    trackType: "clover",
+    difficulty: "risky",
+    archetype: "Core",
+    shortPitch: "Late glass gets heavy.",
+    slotProgress: [0.1, 0.26, 0.42, 0.58, 0.74, 0.88],
+    segments: 72,
+    coreHp: 165,
+    coreArmor: 0,
+    hpCurve: { start: 9, end: 57, exponent: 1.62 },
+    glassHpScale: 0.25,
+    modifiers: ["denseCore"],
+    rewardTierBias: "risky",
+    integrityLossBase: 10,
+    theme: { accentColor: "#80ffd4", glassTint: "#c7fff0", backgroundGridStrength: 0.22 },
+  },
+  {
+    id: "splitGallery",
+    name: "Split Gallery",
+    trackType: "zigzagCoil",
+    difficulty: "risky",
+    archetype: "Swarm",
+    shortPitch: "More slots, stronger route.",
+    slotProgress: [0.09, 0.23, 0.39, 0.56, 0.73, 0.88],
+    segments: 70,
+    coreHp: 145,
+    coreArmor: 0,
+    hpCurve: { start: 9, end: 55, exponent: 1.6 },
+    glassHpScale: 0.25,
+    modifiers: ["extraSlots"],
+    rewardTierBias: "risky",
+    integrityLossBase: 10,
+    theme: { accentColor: "#ffb8f2", glassTint: "#d7f4ff", backgroundGridStrength: 0.22 },
+  },
+  {
+    id: "fragileSwarm",
+    name: "Fragile Swarm",
+    trackType: "brokenSpiral",
+    difficulty: "elite",
+    archetype: "Volatile",
+    shortPitch: "Splits inherit less energy.",
+    slotProgress: [0.12, 0.28, 0.45, 0.63, 0.82],
+    segments: 74,
+    coreHp: 170,
+    coreArmor: 0,
+    hpCurve: { start: 12, end: 62, exponent: 1.66 },
+    glassHpScale: 0.27,
+    modifiers: ["fragileSwarm"],
+    rewardTierBias: "elite",
+    integrityLossBase: 14,
+    theme: { accentColor: "#ffb8b8", glassTint: "#d7f4ff", backgroundGridStrength: 0.24 },
+  },
+  {
+    id: "richCircuit",
+    name: "Rich Circuit",
+    trackType: "rings",
+    difficulty: "risky",
+    archetype: "Rich",
+    shortPitch: "Better rewards, tougher room.",
+    slotProgress: [0.1, 0.27, 0.44, 0.61, 0.8],
+    segments: 72,
+    coreHp: 160,
+    coreArmor: 0,
+    hpCurve: { start: 10, end: 58, exponent: 1.64 },
+    glassHpScale: 0.25,
+    modifiers: ["richDraft"],
+    rewardTierBias: "rich",
+    integrityLossBase: 10,
+    theme: { accentColor: "#fff37a", glassTint: "#c8f7ff", backgroundGridStrength: 0.24 },
+  },
+  {
+    id: "safePassage",
+    name: "Safe Passage",
+    trackType: "snake",
+    difficulty: "safe",
+    archetype: "Safe",
+    shortPitch: "Lower risk, weaker rewards.",
+    slotProgress: [0.15, 0.32, 0.5, 0.68, 0.85],
+    segments: 62,
+    coreHp: 105,
+    coreArmor: 0,
+    hpCurve: { start: 7, end: 44, exponent: 1.55 },
+    glassHpScale: 0.22,
+    modifiers: ["lowIntegrityCost"],
+    rewardTierBias: "safe",
+    integrityLossBase: 5,
+    theme: { accentColor: "#9fffd5", glassTint: "#baf5ff", backgroundGridStrength: 0.18 },
+  },
+  {
+    id: "pierceTrial",
+    name: "Pierce Trial",
+    trackType: "spiral",
+    difficulty: "normal",
+    archetype: "Core",
+    shortPitch: "Pierce helps late.",
+    turns: 3.05,
+    slotProgress: [0.12, 0.3, 0.48, 0.66, 0.84],
+    segments: 68,
+    coreHp: 145,
+    coreArmor: 3,
+    hpCurve: { start: 8, end: 50, exponent: 1.58 },
+    glassHpScale: 0.24,
+    modifiers: ["lightArmor"],
+    rewardTierBias: "normal",
+    integrityLossBase: 7,
+    theme: { accentColor: "#ffffff", glassTint: "#d7f4ff", backgroundGridStrength: 0.2 },
+  },
+  {
+    id: "prismCore",
+    name: "Prism Core",
+    trackType: "brokenSpiral",
+    difficulty: "boss",
+    archetype: "Boss",
+    shortPitch: "Final core. Preserve power and energy.",
+    turns: 3.35,
+    slotProgress: [0.1, 0.22, 0.36, 0.5, 0.66, 0.82, 0.93],
+    segments: 82,
+    coreHp: 260,
+    coreArmor: 7,
+    hpCurve: { start: 13, end: 70, exponent: 1.68, midBoost: 6 },
+    glassHpScale: 0.28,
+    modifiers: ["armoredCore", "denseCore"],
+    rewardTierBias: "boss",
+    integrityLossBase: 18,
+    theme: { accentColor: "#e8f8ff", glassTint: "#d7f4ff", backgroundGridStrength: 0.3 },
   },
 ];
 
@@ -272,11 +433,26 @@ const PUZZLE_CARD_DEFINITIONS = [
 ];
 
 const PUZZLE_CARDS = PUZZLE_CARD_DEFINITIONS;
-const PUZZLE_TOTAL_ROOMS = PUZZLE_ROOMS.length;
+const PUZZLE_TOTAL_ROOMS = 6;
+const PUZZLE_OPENING_ID = "puzzleLabI";
+const PUZZLE_BOSS_ID = "prismCore";
+const PUZZLE_ROOM_POOL = PUZZLE_ROOMS.filter((room) => room.id !== PUZZLE_BOSS_ID);
 const PUZZLE_START_ENERGY = 110;
 const PUZZLE_START_POWER = 30;
 const PUZZLE_START_SPEED = 0.17;
 const PUZZLE_MOVEMENT_DRAIN = 62;
+
+const PUZZLE_MODIFIERS = {
+  energyDrain: { id: "energyDrain", name: "Energy Drain", shortDescription: "Movement energy drain +15%.", numericEffect: "Movement drain x1.15." },
+  denseCore: { id: "denseCore", name: "Dense Core", shortDescription: "Late glass is tougher.", numericEffect: "Glass after 70% has +30% HP." },
+  armoredCore: { id: "armoredCore", name: "Armored Core", shortDescription: "Core reduces small hits.", numericEffect: "Uses room core armor." },
+  extraSlots: { id: "extraSlots", name: "Extra Slots", shortDescription: "More slots, stronger route.", numericEffect: "Glass HP x1.10." },
+  lowIntegrityCost: { id: "lowIntegrityCost", name: "Safe Chamber", shortDescription: "Failed attempts cost less.", numericEffect: "Integrity loss x0.75." },
+  richDraft: { id: "richDraft", name: "Rich Draft", shortDescription: "Better rewards, tougher room.", numericEffect: "Glass HP x1.12; better rewards." },
+  fragileSwarm: { id: "fragileSwarm", name: "Fragile Swarm", shortDescription: "Splits inherit less energy.", numericEffect: "Split energy -8 points." },
+  crackedPath: { id: "crackedPath", name: "Cracked Path", shortDescription: "Weak opening, tougher finish.", numericEffect: "First 20% HP x0.65; last 20% x1.10." },
+  lightArmor: { id: "lightArmor", name: "Light Armor", shortDescription: "Core has light armor.", numericEffect: "Core armor at least 3." },
+};
 
 const TUTORIAL_LEVEL = {
   id: "glassSpiral",
@@ -695,7 +871,22 @@ function handleMainMenuKeyDown(event) {
 
 function handlePuzzleKeyDown(event) {
   if (event.code === "Escape") {
-    setAppState("mainMenu");
+    if (state.mapOverlayOpen) {
+      state.mapOverlayOpen = false;
+      audio.play("uiClick");
+    } else {
+      setAppState("mainMenu");
+      audio.play("uiClick");
+    }
+    return;
+  }
+  if (event.code === "Tab") {
+    event.preventDefault();
+    if (state.puzzle?.puzzleState === "running") {
+      audio.play("denied");
+      return;
+    }
+    state.mapOverlayOpen = !state.mapOverlayOpen;
     audio.play("uiClick");
     return;
   }
@@ -708,7 +899,7 @@ function handlePuzzleKeyDown(event) {
     event.preventDefault();
     if (state.puzzle?.puzzleState === "planning" || state.puzzle?.puzzleState === "attemptComplete") {
       startPuzzleAttempt();
-    } else if (state.puzzle?.puzzleState === "nextRoomReady") {
+    } else if (["nextRoomReady", "nextPuzzleRoomReady"].includes(state.puzzle?.puzzleState)) {
       enterNextPuzzleRoom();
     } else if (state.puzzle?.puzzleState === "runFailed" || state.puzzle?.puzzleState === "runCleared") {
       startPuzzleRun({ newRun: true });
@@ -724,8 +915,12 @@ function handlePuzzleKeyDown(event) {
     applyPuzzleReward(state.puzzle.rewardChoices[number - 1]);
     return;
   }
+  if (state.puzzle?.puzzleState === "nextPuzzleRoomChoice" && number >= 1 && number <= 3) {
+    selectPuzzleRoomOption(number - 1);
+    return;
+  }
   const cards = getAvailablePuzzleCards();
-  if (number >= 1 && number <= cards.length) selectPuzzleCard(cards[number - 1].instanceId);
+  if (!state.mapOverlayOpen && number >= 1 && number <= cards.length) selectPuzzleCard(cards[number - 1].instanceId);
   const slotIndex = ["q", "w", "e", "r", "t"].indexOf(event.key.toLowerCase());
   if (slotIndex >= 0 && state.puzzle?.selectedCardId) {
     placePuzzleCard(state.puzzle.slots[slotIndex].id, state.puzzle.selectedCardId);
@@ -782,14 +977,24 @@ function activateMenuItem(index) {
 }
 
 function startPuzzleRun({ newRun = false } = {}) {
-  if (newRun || !state.puzzle) state.puzzle = createPuzzleRunState();
+  if (newRun || !state.puzzle || !state.puzzle.puzzleActGraph) state.puzzle = createPuzzleRunState();
 }
 
 function createPuzzleRunState() {
+  const puzzleActGraph = createPuzzleActGraph();
   const puzzle = {
     puzzleState: "planning",
     roomIndex: 0,
+    currentRoomIndex: 1,
     totalRooms: PUZZLE_TOTAL_ROOMS,
+    currentRoomNode: puzzleActGraph[0][0],
+    puzzleActGraph,
+    availablePuzzleRoomOptions: [],
+    selectedPuzzleRoomOption: null,
+    clearedPuzzleNodes: [],
+    puzzlePath: [],
+    bossNode: puzzleActGraph[PUZZLE_TOTAL_ROOMS - 1][0],
+    roomHistory: [],
     integrity: 100,
     maxIntegrity: 100,
     deck: createStartingPuzzleDeck(),
@@ -817,25 +1022,106 @@ function createPuzzleRunState() {
     screenShake: 0,
     integrityPulse: 0,
   };
-  enterPuzzleRoom(puzzle, 0);
+  enterPuzzleRoom(puzzle, puzzle.currentRoomNode);
   return puzzle;
 }
 
-function createPuzzleRoom(roomIndex) {
-  const room = structuredClone(PUZZLE_ROOMS[roomIndex] || PUZZLE_ROOMS[PUZZLE_ROOMS.length - 1]);
-  room.room = roomIndex + 1;
-  room.modifiers = [];
+function createPuzzleActGraph() {
+  const rows = [];
+  rows.push([createPuzzleMapNode(getPuzzleTemplate(PUZZLE_OPENING_ID), 1, 0)]);
+  let previousIds = [PUZZLE_OPENING_ID];
+  for (let row = 2; row <= 5; row += 1) {
+    const options = generatePuzzleRoomOptions(row, previousIds);
+    rows.push(options.map((template, index) => createPuzzleMapNode(template, row, index)));
+    previousIds = options.map((template) => template.id);
+  }
+  rows.push([createPuzzleMapNode(getPuzzleTemplate(PUZZLE_BOSS_ID), 6, 0, true)]);
+  rows[0][0].current = true;
+  rows[0][0].discovered = true;
+  return rows;
+}
+
+function createPuzzleMapNode(template, row, index, isBoss = false) {
+  return {
+    id: `puzzle-${row}-${index}-${template.id}`,
+    row,
+    templateId: template.id,
+    name: template.name,
+    difficulty: template.difficulty,
+    archetype: template.archetype,
+    trackType: template.trackType,
+    slotsCount: template.slotProgress.length,
+    modifiers: [...(template.modifiers || [])],
+    shortPitch: template.shortPitch,
+    rewardTierBias: template.rewardTierBias,
+    isBoss,
+    cleared: false,
+    available: false,
+    selected: false,
+    current: false,
+    discovered: row <= 2 || isBoss,
+  };
+}
+
+function generatePuzzleRoomOptions(row, previousIds = []) {
+  const allowed = PUZZLE_ROOM_POOL.filter((template) => {
+    if (template.id === PUZZLE_OPENING_ID && row > 2) return false;
+    if (previousIds.includes(template.id)) return false;
+    if (row < 3 && template.difficulty === "elite") return false;
+    return true;
+  });
+  const preferred = row <= 2
+    ? allowed.filter((template) => ["safe", "normal"].includes(template.difficulty))
+    : row >= 5
+      ? allowed.filter((template) => ["risky", "elite"].includes(template.difficulty))
+      : allowed;
+  const choices = [];
+  const pools = [preferred, allowed];
+  for (const pool of pools) {
+    let guard = 0;
+    while (choices.length < 3 && pool.length > 0 && guard < 60) {
+      guard += 1;
+      const template = pool[Math.floor(Math.random() * pool.length)];
+      if (!choices.some((choice) => choice.id === template.id)) choices.push(template);
+    }
+  }
+  while (choices.length < 3) {
+    const fallback = PUZZLE_ROOM_POOL.find((template) => !choices.some((choice) => choice.id === template.id)) || PUZZLE_ROOM_POOL[0];
+    choices.push(fallback);
+  }
+  if (row <= 3 && !choices.some((template) => ["safe", "normal"].includes(template.difficulty))) {
+    const safe = allowed.find((template) => ["safe", "normal"].includes(template.difficulty));
+    if (safe) choices[0] = safe;
+  }
+  return choices.slice(0, 3);
+}
+
+function getPuzzleTemplate(templateId) {
+  return PUZZLE_ROOMS.find((room) => room.id === templateId) || PUZZLE_ROOMS[0];
+}
+
+function createPuzzleRoom(templateOrNode) {
+  const template = templateOrNode?.templateId ? getPuzzleTemplate(templateOrNode.templateId) : getPuzzleTemplate(templateOrNode?.id);
+  const room = structuredClone(template);
+  room.room = templateOrNode?.row || 1;
   room.multipliers = [];
   room.coreHpScale = 1;
   room.shardMultiplier = 1;
-  room.archetype = "Core";
-  room.shortPitch = "Puzzle chamber";
+  room.theme = room.theme || { accentColor: "#84f0ff", glassTint: "#a7efff", backgroundGridStrength: 0.2 };
+  if (hasPuzzleModifier(room, "extraSlots")) room.glassHpScale *= 1.1;
+  if (hasPuzzleModifier(room, "richDraft")) room.glassHpScale *= 1.12;
+  if (hasPuzzleModifier(room, "lightArmor")) room.coreArmor = Math.max(room.coreArmor || 0, 3);
   return room;
 }
 
-function enterPuzzleRoom(puzzle, roomIndex) {
-  puzzle.roomIndex = roomIndex;
-  puzzle.level = createPuzzleRoom(roomIndex);
+function enterPuzzleRoom(puzzle, nodeOrRoomIndex) {
+  const node = typeof nodeOrRoomIndex === "number"
+    ? puzzle.puzzleActGraph[Math.min(nodeOrRoomIndex, puzzle.puzzleActGraph.length - 1)][0]
+    : nodeOrRoomIndex;
+  puzzle.currentRoomNode = node;
+  puzzle.roomIndex = node.row - 1;
+  puzzle.currentRoomIndex = node.row;
+  puzzle.level = createPuzzleRoom(node);
   puzzle.track = generateTrack(puzzle.level);
   puzzle.slots = createPuzzleSlots(puzzle.level);
   puzzle.selectedCardId = null;
@@ -848,6 +1134,18 @@ function enterPuzzleRoom(puzzle, roomIndex) {
   puzzle.bestDamage = 0;
   puzzle.report = null;
   puzzle.puzzleState = "planning";
+  puzzle.availablePuzzleRoomOptions = [];
+  puzzle.selectedPuzzleRoomOption = null;
+  for (const row of puzzle.puzzleActGraph) {
+    for (const item of row) {
+      item.current = item.id === node.id;
+      item.selected = false;
+      item.available = false;
+      if (item.id === node.id) item.discovered = true;
+    }
+  }
+  puzzle.roomHistory.push(node.templateId);
+  if (!puzzle.puzzlePath.includes(node.id)) puzzle.puzzlePath.push(node.id);
   resetPuzzleRoomDamage(puzzle);
 }
 
@@ -962,7 +1260,7 @@ function selectPuzzleCard(cardInstanceId) {
 
 function placePuzzleCard(slotId, cardInstanceId) {
   const puzzle = state.puzzle;
-  if (!puzzle || puzzle.puzzleState === "running" || ["rewardChoice", "nextRoomReady", "runFailed", "runCleared"].includes(puzzle.puzzleState)) {
+  if (!puzzle || puzzle.puzzleState === "running" || ["rewardChoice", "nextRoomReady", "nextPuzzleRoomChoice", "nextPuzzleRoomReady", "runFailed", "runCleared"].includes(puzzle.puzzleState)) {
     audio.play("denied");
     return;
   }
@@ -979,7 +1277,7 @@ function placePuzzleCard(slotId, cardInstanceId) {
 
 function removePuzzleCardFromSlot(slotId) {
   const puzzle = state.puzzle;
-  if (!puzzle || puzzle.puzzleState === "running" || ["rewardChoice", "nextRoomReady", "runFailed", "runCleared"].includes(puzzle.puzzleState)) {
+  if (!puzzle || puzzle.puzzleState === "running" || ["rewardChoice", "nextRoomReady", "nextPuzzleRoomChoice", "nextPuzzleRoomReady", "runFailed", "runCleared"].includes(puzzle.puzzleState)) {
     audio.play("denied");
     return;
   }
@@ -997,7 +1295,7 @@ function removePuzzleCardFromSlot(slotId) {
 
 function clearPuzzlePlacements() {
   const puzzle = state.puzzle;
-  if (!puzzle || puzzle.puzzleState === "running" || ["rewardChoice", "nextRoomReady", "runFailed", "runCleared"].includes(puzzle.puzzleState)) {
+  if (!puzzle || puzzle.puzzleState === "running" || ["rewardChoice", "nextRoomReady", "nextPuzzleRoomChoice", "nextPuzzleRoomReady", "runFailed", "runCleared"].includes(puzzle.puzzleState)) {
     audio.play("denied");
     return;
   }
@@ -1149,7 +1447,8 @@ function updatePuzzleBallMovement(ball, dt) {
   ball.previousProgress = ball.progress;
   const boosted = ball.speedBoostUntilProgress > ball.progress;
   const speedMultiplier = boosted ? ball.boostSpeedMultiplier : 1;
-  const drainMultiplier = boosted ? ball.boostDrainMultiplier : 1;
+  let drainMultiplier = boosted ? ball.boostDrainMultiplier : 1;
+  if (hasPuzzleModifier(puzzle.level, "energyDrain")) drainMultiplier *= 1.15;
   const deltaProgress = ball.baseSpeed * speedMultiplier * dt;
   ball.progress = Math.min(1.04, ball.progress + deltaProgress);
   ball.targetProgress = ball.progress;
@@ -1231,11 +1530,14 @@ function triggerPuzzleCard(ball, slot, card, spawned) {
   } else if (card.type === "split2" || card.type === "split3") {
     const count = card.type === "split2" ? 2 : 3;
     const offsets = getSpreadLaneOffsets(count);
+    const energyInherit = hasPuzzleModifier(puzzle.level, "fragileSwarm")
+      ? Math.max(0.5, effect.energy - 0.08)
+      : effect.energy;
     ball.alive = false;
     for (let i = 0; i < count; i += 1) {
       const clone = createPuzzleBall(
         ball.progress,
-        Math.max(8, ball.energy * effect.energy),
+        Math.max(8, ball.energy * energyInherit),
         Math.max(3, ball.power * effect.power),
         clamp(ball.laneOffset + offsets[i], -MAX_LANE_OFFSET, MAX_LANE_OFFSET),
         pickBallColor(count, i),
@@ -1432,12 +1734,13 @@ function completePuzzleAttempt() {
 }
 
 function calculatePuzzleIntegrityLoss(stats) {
-  const base = { safe: 5, normal: 7, risky: 10, elite: 14, boss: 18 }[state.puzzle.level.difficulty] || 7;
+  const base = state.puzzle.level.integrityLossBase || { safe: 5, normal: 7, risky: 10, elite: 14, boss: 18 }[state.puzzle.level.difficulty] || 7;
   let loss = base + state.puzzle.failedAttemptsInRoom;
   if (stats.depthReached >= 0.5) loss -= 2;
   if (stats.depthReached >= 0.75) loss -= 2;
   if (stats.coreDamage > 0) loss -= 3;
   if (stats.glassBroken >= 10) loss -= 1;
+  if (hasPuzzleModifier(state.puzzle.level, "lowIntegrityCost")) loss *= 0.75;
   return Math.max(2, Math.round(loss));
 }
 
@@ -1453,12 +1756,15 @@ function solvePuzzleRoom() {
   puzzle.core.hp = 0;
   puzzle.core.broken = true;
   puzzle.balls = [];
-  puzzle.roomsSolved = Math.max(puzzle.roomsSolved, puzzle.roomIndex + 1);
+  puzzle.roomsSolved = Math.max(puzzle.roomsSolved, puzzle.currentRoomIndex);
+  if (!puzzle.clearedPuzzleNodes.includes(puzzle.currentRoomNode.id)) puzzle.clearedPuzzleNodes.push(puzzle.currentRoomNode.id);
+  puzzle.currentRoomNode.cleared = true;
+  puzzle.currentRoomNode.current = false;
   const corePoint = getPuzzleTrackPoint(1);
   burst(corePoint.x, corePoint.y, "#fff37a", 100, 380);
   puzzle.screenShake = 13;
   audio.play("victory");
-  if (puzzle.roomIndex >= PUZZLE_TOTAL_ROOMS - 1) {
+  if (puzzle.currentRoomIndex >= PUZZLE_TOTAL_ROOMS || puzzle.currentRoomNode.isBoss) {
     puzzle.puzzleState = "runCleared";
     return;
   }
@@ -1476,7 +1782,7 @@ function failPuzzleRun() {
 
 function generatePuzzleRewards() {
   const puzzle = state.puzzle;
-  const rarityPool = getPuzzleRewardRarities(puzzle.level.difficulty);
+  const rarityPool = getPuzzleRewardRarities(puzzle.level.difficulty, puzzle.level);
   const options = [];
   let guard = 0;
   while (options.length < 3 && guard < 80) {
@@ -1490,13 +1796,33 @@ function generatePuzzleRewards() {
     options.push(reward);
   }
   if (options.length === 0) options.push({ type: "restoreIntegrity", title: "Restore Integrity", description: "Restore +15 Integrity.", amount: 15, rarity: "common", key: "fallback" });
+  annotatePuzzleRewards(options, puzzle.level);
   return options.slice(0, 3);
 }
 
-function getPuzzleRewardRarities(difficulty) {
+function getPuzzleRewardRarities(difficulty, level = state.puzzle?.level) {
+  if (hasPuzzleModifier(level, "richDraft")) return ["uncommon", "uncommon", "rare", "common", "rare"];
+  if (hasPuzzleModifier(level, "lowIntegrityCost")) return ["common", "common", "common", "uncommon"];
   if (difficulty === "elite") return ["uncommon", "uncommon", "rare", "common"];
   if (difficulty === "risky") return ["common", "uncommon", "uncommon", "rare"];
+  if (difficulty === "safe") return ["common", "common", "common"];
   return ["common", "common", "common", "uncommon"];
+}
+
+function annotatePuzzleRewards(options, level) {
+  const note = hasPuzzleModifier(level, "richDraft")
+    ? " Rich Draft bonus."
+    : level.difficulty === "elite"
+      ? " Elite reward pool."
+      : level.difficulty === "risky"
+        ? " Risky reward pool."
+        : hasPuzzleModifier(level, "lowIntegrityCost")
+          ? " Safe room reward pool."
+          : "";
+  if (!note) return;
+  options.forEach((reward) => {
+    reward.description = `${reward.description}${note}`;
+  });
 }
 
 function createPuzzleRewardOption(rarity) {
@@ -1569,7 +1895,7 @@ function applyPuzzleReward(reward) {
   }
   puzzle.selectedReward = reward;
   puzzle.rewardResolved = true;
-  puzzle.puzzleState = "nextRoomReady";
+  setupNextPuzzleRoomChoice(puzzle);
   addFloatingText(CENTER.x, 76, "Reward acquired", "#fff37a", 0.9);
   audio.play("upgrade");
 }
@@ -1581,12 +1907,53 @@ function upgradeCardInstance(cardInstanceId) {
 
 function enterNextPuzzleRoom() {
   const puzzle = state.puzzle;
-  if (puzzle.roomIndex >= PUZZLE_TOTAL_ROOMS - 1) {
+  if (puzzle.currentRoomIndex >= PUZZLE_TOTAL_ROOMS) {
     puzzle.puzzleState = "runCleared";
     return;
   }
-  enterPuzzleRoom(puzzle, puzzle.roomIndex + 1);
+  const selected = puzzle.selectedPuzzleRoomOption || puzzle.availablePuzzleRoomOptions[0];
+  if (!selected) {
+    audio.play("denied");
+    return;
+  }
+  enterPuzzleRoom(puzzle, selected);
   audio.play("uiClick");
+}
+
+function setupNextPuzzleRoomChoice(puzzle) {
+  const nextRowNumber = puzzle.currentRoomIndex + 1;
+  const nextRow = puzzle.puzzleActGraph[nextRowNumber - 1] || [];
+  for (const row of puzzle.puzzleActGraph) {
+    for (const node of row) {
+      node.available = false;
+      node.selected = false;
+      if (node.row === nextRowNumber) node.discovered = true;
+    }
+  }
+  puzzle.availablePuzzleRoomOptions = nextRow;
+  nextRow.forEach((node) => {
+    node.available = true;
+  });
+  if (nextRow.length === 1 || nextRow[0]?.isBoss) {
+    selectPuzzleRoomOption(0, false);
+    puzzle.puzzleState = "nextPuzzleRoomReady";
+  } else {
+    puzzle.selectedPuzzleRoomOption = null;
+    puzzle.puzzleState = "nextPuzzleRoomChoice";
+  }
+}
+
+function selectPuzzleRoomOption(index, playSound = true) {
+  const puzzle = state.puzzle;
+  const node = puzzle?.availablePuzzleRoomOptions[index];
+  if (!node) {
+    audio.play("denied");
+    return;
+  }
+  puzzle.selectedPuzzleRoomOption = node;
+  for (const option of puzzle.availablePuzzleRoomOptions) option.selected = option.id === node.id;
+  puzzle.puzzleState = "nextPuzzleRoomReady";
+  if (playSound) audio.play("uiClick");
 }
 
 function handleSpace() {
@@ -1657,6 +2024,16 @@ function handleCanvasClick() {
   }
 
   if (state.appState === "puzzleRun") {
+    if (hovered.type === "puzzleMapNode") {
+      const index = state.puzzle.availablePuzzleRoomOptions.findIndex((node) => node.id === hovered.payload.nodeId);
+      if (state.puzzle.puzzleState === "nextPuzzleRoomChoice" && index >= 0) selectPuzzleRoomOption(index);
+      else audio.play("denied");
+      return;
+    }
+    if (hovered.type === "puzzleChamber") {
+      selectPuzzleRoomOption(hovered.payload.index);
+      return;
+    }
     if (hovered.type === "puzzleCard") {
       selectPuzzleCard(hovered.payload.cardId);
       return;
@@ -2016,6 +2393,9 @@ function generateGlassSegments(level) {
     if (hasLevelModifier(level, "denseMiddle") && mid >= 0.35 && mid <= 0.7) hp *= 1.45;
     if (hasLevelModifier(level, "crackedStart") && mid < 0.25) hp *= 0.5;
     if (hasLevelModifier(level, "crackedStart") && mid > 0.75) hp *= 1.25;
+    if (hasPuzzleModifier(level, "denseCore") && mid > 0.7) hp *= 1.3;
+    if (hasPuzzleModifier(level, "crackedPath") && mid < 0.2) hp *= 0.65;
+    if (hasPuzzleModifier(level, "crackedPath") && mid > 0.8) hp *= 1.1;
     const maxHp = Math.max(1, Math.round(hp));
 
     segments.push({
@@ -2754,9 +3134,10 @@ function drawPuzzleRun() {
   drawPuzzleHud();
   drawPuzzleCards();
   if (puzzle.puzzleState === "attemptComplete") drawPuzzleAttemptReport();
-  if (puzzle.puzzleState === "rewardChoice" || puzzle.puzzleState === "nextRoomReady") drawPuzzleRoomVictory();
+  if (["rewardChoice", "nextRoomReady", "nextPuzzleRoomChoice", "nextPuzzleRoomReady"].includes(puzzle.puzzleState)) drawPuzzleRoomVictory();
   if (puzzle.puzzleState === "runFailed") drawPuzzleRunFailed();
   if (puzzle.puzzleState === "runCleared") drawPuzzleRunCleared();
+  drawPuzzleActMapOverlay();
   if (puzzle.integrityPulse > 0) drawPuzzleIntegrityPulse();
 }
 
@@ -2826,14 +3207,17 @@ function drawPuzzleGlass() {
   for (const segment of puzzle.segments) {
     if (segment.broken) continue;
     const integrity = clamp(segment.hp / segment.maxHp, 0, 1);
-    const cracked = segment.crackWeak || integrity < 0.72;
+    const mid = (segment.progressStart + segment.progressEnd) * 0.5;
+    const denseLate = hasPuzzleModifier(puzzle.level, "denseCore") && mid > 0.7;
+    const crackedPath = hasPuzzleModifier(puzzle.level, "crackedPath") && mid < 0.2;
+    const cracked = segment.crackWeak || crackedPath || integrity < 0.72;
     ctx.save();
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
     ctx.strokeStyle = segment.crackWeak
       ? `rgba(255, 184, 184, ${0.22 + integrity * 0.36})`
       : rgba(puzzle.level.theme.glassTint, 0.28 + integrity * 0.46);
-    ctx.lineWidth = TRACK_WIDTH * (0.44 + integrity * 0.14);
+    ctx.lineWidth = TRACK_WIDTH * (0.44 + integrity * 0.14 + (denseLate ? 0.08 : 0));
     ctx.beginPath();
     for (let i = 0; i <= 5; i += 1) {
       const p = getPuzzleTrackPoint(lerp(segment.progressStart, segment.progressEnd, i / 5));
@@ -2841,6 +3225,11 @@ function drawPuzzleGlass() {
       else ctx.lineTo(p.x, p.y);
     }
     ctx.stroke();
+    if (denseLate) {
+      ctx.strokeStyle = "rgba(2, 9, 15, 0.34)";
+      ctx.lineWidth = 4;
+      ctx.stroke();
+    }
     if (cracked) drawPuzzleCracks(segment);
     ctx.restore();
   }
@@ -2935,6 +3324,13 @@ function drawPuzzleCore() {
   ctx.beginPath();
   ctx.arc(point.x, point.y, 29, -Math.PI / 2, -Math.PI / 2 + TAU * (puzzle.core.hp / puzzle.core.maxHp));
   ctx.stroke();
+  if (hasPuzzleModifier(puzzle.level, "armoredCore") || hasPuzzleModifier(puzzle.level, "lightArmor")) {
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.72)";
+    ctx.lineWidth = 2.2;
+    ctx.beginPath();
+    ctx.arc(point.x, point.y, 35 + pulse * 2, 0, TAU);
+    ctx.stroke();
+  }
   ctx.fillStyle = "#eaffff";
   ctx.font = "900 10px Inter, system-ui, sans-serif";
   ctx.textAlign = "center";
@@ -3018,6 +3414,8 @@ function drawPuzzleHud() {
     ["Room", `${puzzle.roomIndex + 1} / ${puzzle.totalRooms}`],
     ["Room name", puzzle.level.name],
     ["Difficulty", capitalize(puzzle.level.difficulty)],
+    ["Archetype", puzzle.level.archetype],
+    ["Modifiers", formatPuzzleModifierList(puzzle.level, true)],
     ["State", formatPuzzleState(puzzle.puzzleState)],
     ["Integrity", `${puzzle.integrity} / ${puzzle.maxIntegrity}`],
     ["Attempts", `${puzzle.attempts} (${puzzle.totalAttempts} total)`],
@@ -3042,7 +3440,7 @@ function drawPuzzleHud() {
   }
   ctx.fillStyle = "#baf5ff";
   ctx.font = "800 11px Inter, system-ui, sans-serif";
-  wrapText(ctx, "Swarm rule: balls hit one by one. Failed breakers are spent. B balance log. SPACE launch. C clear. ESC menu.", panel.x + 16, panel.y + panel.h - 58, panel.w - 32, 14, 4);
+  wrapText(ctx, "Swarm rule: balls hit one by one. TAB map. B balance log. SPACE launch. C clear. ESC menu.", panel.x + 16, panel.y + panel.h - 58, panel.w - 32, 14, 4);
   ctx.restore();
 }
 
@@ -3146,7 +3544,8 @@ function drawPuzzleAttemptReport() {
 
 function drawPuzzleRoomVictory() {
   const puzzle = state.puzzle;
-  const panel = { x: 84, y: 112, w: WIDTH - 168, h: puzzle.puzzleState === "rewardChoice" ? 560 : 344 };
+  const choosingRoom = puzzle.puzzleState === "nextPuzzleRoomChoice" || puzzle.puzzleState === "nextPuzzleRoomReady";
+  const panel = { x: 84, y: 88, w: WIDTH - 168, h: choosingRoom || puzzle.puzzleState === "rewardChoice" ? 644 : 344 };
   ctx.save();
   ctx.fillStyle = "rgba(2, 5, 9, 0.52)";
   ctx.fillRect(0, 0, WIDTH, HEIGHT);
@@ -3156,7 +3555,7 @@ function drawPuzzleRoomVictory() {
   ctx.shadowBlur = 28;
   ctx.shadowColor = "#ffffff";
   ctx.font = "900 40px Inter, system-ui, sans-serif";
-  ctx.fillText("ROOM SOLVED", panel.x + 26, panel.y + 62);
+  ctx.fillText(choosingRoom ? "CHOOSE NEXT PUZZLE CHAMBER" : "ROOM SOLVED", panel.x + 26, panel.y + 62);
   ctx.shadowBlur = 0;
   const rows = [
     ["Room", `${puzzle.roomIndex + 1} / ${puzzle.totalRooms} - ${puzzle.level.name}`],
@@ -3181,6 +3580,8 @@ function drawPuzzleRoomVictory() {
     ctx.font = "900 16px Inter, system-ui, sans-serif";
     ctx.fillText("Choose reward: 1 / 2 / 3", panel.x + 28, y + 10);
     drawPuzzleRewardChoice({ x: panel.x + 24, y: y + 28, w: panel.w - 48, h: panel.h - (y - panel.y) - 50 });
+  } else if (choosingRoom) {
+    drawPuzzleRoomChoice({ x: panel.x + 24, y: y + 18, w: panel.w - 48, h: panel.h - (y - panel.y) - 44 });
   } else {
     ctx.fillStyle = "#fff37a";
     ctx.font = "900 17px Inter, system-ui, sans-serif";
@@ -3190,6 +3591,185 @@ function drawPuzzleRoomVictory() {
     ctx.fillText("Press SPACE for next Puzzle room", panel.x + 28, y + 58);
   }
   ctx.restore();
+}
+
+function drawPuzzleRoomChoice(area) {
+  const puzzle = state.puzzle;
+  const options = puzzle.availablePuzzleRoomOptions || [];
+  if (!options.length) return;
+  const selected = puzzle.selectedPuzzleRoomOption;
+  ctx.fillStyle = "#fff37a";
+  ctx.font = "900 16px Inter, system-ui, sans-serif";
+  ctx.textAlign = "left";
+  ctx.fillText(
+    puzzle.puzzleState === "nextPuzzleRoomReady"
+      ? `${selected?.name || "Chamber"} selected`
+      : options.length === 1
+        ? "Boss chamber ahead"
+        : "Choose next puzzle chamber: 1 / 2 / 3",
+    area.x + 4,
+    area.y,
+  );
+  const gap = 14;
+  const cardY = area.y + 22;
+  const cardH = area.h - 58;
+  const cardW = (area.w - gap * (options.length - 1)) / options.length;
+  options.forEach((node, index) => {
+    const rect = { x: area.x + index * (cardW + gap), y: cardY, w: cardW, h: cardH };
+    drawPuzzleChamberCard(ctx, node, rect, index, selected?.id === node.id);
+  });
+  if (puzzle.puzzleState === "nextPuzzleRoomReady") {
+    ctx.fillStyle = "#baf5ff";
+    ctx.font = "900 15px Inter, system-ui, sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText("Press SPACE to enter chamber", area.x + area.w / 2, area.y + area.h - 12);
+  }
+}
+
+function drawPuzzleChamberCard(context, node, rect, index, selected) {
+  const template = getPuzzleTemplate(node.templateId);
+  const hovered = state.hoveredInteractive?.type === "puzzleChamber" && state.hoveredInteractive.payload.index === index;
+  addInteractiveRect("puzzleChamber", rect, { index }, {
+    title: node.name,
+    body: `${capitalize(node.difficulty)} ${node.archetype}. ${template.shortPitch} Mods: ${formatPuzzleModifierList(template)}.`,
+  });
+  context.save();
+  context.fillStyle = selected || hovered ? rgba(template.theme.accentColor, 0.24) : "rgba(8, 18, 28, 0.9)";
+  context.strokeStyle = selected ? "#ffffff" : rgba(template.theme.accentColor, hovered ? 0.78 : 0.38);
+  context.lineWidth = selected ? 2.4 : 1.3;
+  roundRect(rect.x, rect.y, rect.w, rect.h, 8);
+  context.fill();
+  context.stroke();
+  drawBadge(context, String(index + 1), { x: rect.x + 12, y: rect.y + 12, w: 30, h: 26 }, { color: template.theme.accentColor });
+  context.fillStyle = "#ffffff";
+  context.font = fitText(context, node.name, rect.w - 62, "900 17px Inter, system-ui, sans-serif", 11);
+  context.textAlign = "left";
+  context.fillText(node.name, rect.x + 52, rect.y + 31);
+  drawBadge(context, `${capitalize(node.difficulty)} · ${node.archetype}`, { x: rect.x + 12, y: rect.y + 48, w: rect.w - 24, h: 24 }, {
+    color: getDifficultyColor(node.difficulty),
+    minFontSize: 8,
+  });
+  const previewRect = { x: rect.x + 12, y: rect.y + 82, w: rect.w - 24, h: Math.min(118, rect.h * 0.34) };
+  drawPuzzleTrackPreview(context, previewRect, template);
+  context.fillStyle = "#b9dbe4";
+  context.font = "800 11px Inter, system-ui, sans-serif";
+  context.fillText(`Track: ${node.trackType}   Slots: ${node.slotsCount}`, rect.x + 14, previewRect.y + previewRect.h + 20);
+  drawPuzzleModifierBadges(context, template, rect.x + 14, previewRect.y + previewRect.h + 30, rect.w - 28);
+  drawPuzzleRiskRewardBars(context, rect.x + 14, previewRect.y + previewRect.h + 62, template);
+  context.fillStyle = "#eaffff";
+  context.font = "800 12px Inter, system-ui, sans-serif";
+  wrapText(context, template.shortPitch, rect.x + 14, previewRect.y + previewRect.h + 88, rect.w - 28, 15, 3);
+  context.fillStyle = "#93aeb9";
+  context.font = "800 11px Inter, system-ui, sans-serif";
+  wrapText(context, getPuzzleIntegrityPressureText(template), rect.x + 14, rect.y + rect.h - 36, rect.w - 28, 13, 2);
+  context.restore();
+}
+
+function drawPuzzleTrackPreview(context, rect, template) {
+  const level = { ...template, multipliers: [] };
+  const points = fitPointsToRect(generateTrack(level), rect, 10);
+  context.save();
+  context.fillStyle = "rgba(1, 7, 11, 0.66)";
+  roundRect(rect.x, rect.y, rect.w, rect.h, 6);
+  context.fill();
+  context.lineCap = "round";
+  context.lineJoin = "round";
+  context.strokeStyle = rgba(template.theme.glassTint, 0.28);
+  context.lineWidth = 8;
+  context.beginPath();
+  points.forEach((point, index) => {
+    if (index === 0) context.moveTo(point.x, point.y);
+    else context.lineTo(point.x, point.y);
+  });
+  context.stroke();
+  if (hasPuzzleModifier(template, "denseCore")) drawPreviewRange(context, points, 0.7, 1, "rgba(4, 12, 18, 0.78)", 7);
+  if (hasPuzzleModifier(template, "crackedPath")) drawPreviewRange(context, points, 0, 0.2, "rgba(255, 255, 255, 0.55)", 4);
+  if (hasPuzzleModifier(template, "energyDrain")) {
+    context.fillStyle = "rgba(255, 243, 122, 0.82)";
+    context.font = "900 13px Inter, system-ui, sans-serif";
+    context.fillText("⚡", rect.x + 12, rect.y + 18);
+  }
+  if (hasPuzzleModifier(template, "richDraft")) {
+    context.fillStyle = "rgba(255, 243, 122, 0.82)";
+    for (let i = 0; i < 7; i += 1) {
+      const p = points[Math.floor((i / 7) * (points.length - 1))];
+      context.beginPath();
+      context.arc(p.x + ((i % 2) * 2 - 1) * 5, p.y, 1.7, 0, TAU);
+      context.fill();
+    }
+  }
+  context.strokeStyle = rgba(template.theme.glassTint, 0.92);
+  context.lineWidth = 2.4;
+  context.beginPath();
+  points.forEach((point, index) => {
+    if (index === 0) context.moveTo(point.x, point.y);
+    else context.lineTo(point.x, point.y);
+  });
+  context.stroke();
+  for (const progress of template.slotProgress || []) {
+    const point = points[Math.min(points.length - 1, Math.max(0, Math.round(progress * (points.length - 1))))];
+    context.fillStyle = rgba(template.theme.accentColor, 0.9);
+    context.shadowBlur = 6;
+    context.shadowColor = template.theme.accentColor;
+    context.beginPath();
+    context.arc(point.x, point.y, 3.8, 0, TAU);
+    context.fill();
+  }
+  const start = points[0];
+  const core = points[points.length - 1];
+  drawMiniStartAndCore(context, start.x, start.y, core.x, core.y, hasPuzzleModifier(template, "armoredCore") || hasPuzzleModifier(template, "lightArmor"));
+  drawTrackIcon(context, template.trackType, rect.x + rect.w - 26, rect.y + 18, 13, template.theme.accentColor);
+  context.restore();
+}
+
+function drawPuzzleModifierBadges(context, template, x, y, maxWidth) {
+  const mods = (template.modifiers || []).map((id) => PUZZLE_MODIFIERS[id]).filter(Boolean);
+  if (!mods.length) {
+    context.fillStyle = "#93aeb9";
+    context.font = "800 10px Inter, system-ui, sans-serif";
+    context.fillText("No modifiers", x, y + 13);
+    return;
+  }
+  let cursor = x;
+  mods.slice(0, 2).forEach((modifier) => {
+    const label = getPuzzleModifierLabel(modifier.id);
+    const w = Math.min(74, Math.max(48, label.length * 7 + 18));
+    const rect = { x: cursor, y, w, h: 20 };
+    drawBadge(context, label, rect, { color: template.theme.accentColor, minFontSize: 8 });
+    addInteractiveRect("modifierBadge", rect, { id: modifier.id }, { title: modifier.name, body: `${modifier.shortDescription} ${modifier.numericEffect}` });
+    cursor += w + 7;
+  });
+  if (mods.length > 2) {
+    drawBadge(context, `+${mods.length - 2}`, { x: cursor, y, w: 34, h: 20 }, { color: template.theme.accentColor });
+  }
+}
+
+function drawPuzzleRiskRewardBars(context, x, y, template) {
+  context.font = "900 10px Inter, system-ui, sans-serif";
+  context.textAlign = "left";
+  context.fillStyle = "#ffb8b8";
+  context.fillText(`Risk ${scoreDots(getPuzzleRiskScore(template))}`, x, y);
+  context.fillStyle = "#fff37a";
+  context.fillText(`Reward ${scoreDots(getPuzzleRewardScore(template))}`, x + 104, y);
+}
+
+function getPuzzleRiskScore(template) {
+  const base = { safe: 1, normal: 2, risky: 3, elite: 4, boss: 5 }[template.difficulty] || 2;
+  const extra = ["energyDrain", "armoredCore", "denseCore", "fragileSwarm"].filter((id) => hasPuzzleModifier(template, id)).length;
+  return clamp(base + extra, 1, 5);
+}
+
+function getPuzzleRewardScore(template) {
+  const base = { safe: 1, normal: 2, risky: 3, elite: 4, boss: 5 }[template.difficulty] || 2;
+  const extra = hasPuzzleModifier(template, "richDraft") ? 1 : 0;
+  const safePenalty = hasPuzzleModifier(template, "lowIntegrityCost") ? 1 : 0;
+  return clamp(base + extra - safePenalty, 1, 5);
+}
+
+function getPuzzleIntegrityPressureText(template) {
+  const base = template.integrityLossBase || { safe: 5, normal: 7, risky: 10, elite: 14, boss: 18 }[template.difficulty] || 7;
+  const adjusted = hasPuzzleModifier(template, "lowIntegrityCost") ? Math.round(base * 0.75) : base;
+  return `Integrity pressure: ${adjusted}+ on failed attempts.`;
 }
 
 function drawPuzzleRewardChoice(area) {
@@ -3256,7 +3836,7 @@ function drawPuzzleRunCleared() {
   ctx.shadowBlur = 28;
   ctx.shadowColor = "#ffffff";
   ctx.font = "900 46px Inter, system-ui, sans-serif";
-  ctx.fillText("PUZZLE RUN CLEARED", CENTER.x, panel.y + 76);
+  ctx.fillText("PUZZLE ACT CLEARED", CENTER.x, panel.y + 76);
   ctx.shadowBlur = 0;
   ctx.fillStyle = "#baf5ff";
   ctx.font = "800 16px Inter, system-ui, sans-serif";
@@ -3264,6 +3844,109 @@ function drawPuzzleRunCleared() {
   ctx.fillText(`Cards owned: ${puzzle.deck.length}     Total attempts: ${puzzle.totalAttempts}`, CENTER.x, panel.y + 158);
   ctx.fillStyle = "#fff37a";
   ctx.fillText("SPACE / ENTER new Puzzle Run     ESC menu", CENTER.x, panel.y + 218);
+  ctx.restore();
+}
+
+function drawPuzzleActMapOverlay() {
+  const puzzle = state.puzzle;
+  if (!state.mapOverlayOpen || !puzzle) return;
+  const panel = { x: 74, y: 58, w: WIDTH - 148, h: HEIGHT - 116 };
+  ctx.save();
+  ctx.fillStyle = "rgba(2, 5, 9, 0.66)";
+  ctx.fillRect(0, 0, WIDTH, HEIGHT);
+  drawPanelRect(panel);
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "900 38px Inter, system-ui, sans-serif";
+  ctx.fillText("PUZZLE ACT MAP", CENTER.x, panel.y + 50);
+  ctx.fillStyle = "#baf5ff";
+  ctx.font = "800 13px Inter, system-ui, sans-serif";
+  ctx.fillText("TAB / ESC close     click available node during chamber choice", CENTER.x, panel.y + 78);
+
+  const positions = getPuzzleMapPositions(panel);
+  drawPuzzleMapConnections(positions);
+  for (const row of puzzle.puzzleActGraph) {
+    for (const node of row) drawPuzzleMapNode(node, positions.get(node.id));
+  }
+  ctx.restore();
+}
+
+function getPuzzleMapPositions(panel) {
+  const positions = new Map();
+  const top = panel.y + 122;
+  const rowGap = (panel.h - 178) / (PUZZLE_TOTAL_ROOMS - 1);
+  for (const row of state.puzzle.puzzleActGraph) {
+    const y = top + (row[0].row - 1) * rowGap;
+    const gap = Math.min(190, panel.w / Math.max(2, row.length + 1));
+    const startX = CENTER.x - ((row.length - 1) * gap) / 2;
+    row.forEach((node, index) => positions.set(node.id, { x: startX + index * gap, y }));
+  }
+  return positions;
+}
+
+function drawPuzzleMapConnections(positions) {
+  const rows = state.puzzle.puzzleActGraph;
+  ctx.save();
+  for (let r = 0; r < rows.length - 1; r += 1) {
+    for (const a of rows[r]) {
+      const aPos = positions.get(a.id);
+      for (const b of rows[r + 1]) {
+        const bPos = positions.get(b.id);
+        const active = a.cleared && (b.available || b.current || b.selected || state.puzzle.puzzlePath.includes(b.id));
+        ctx.strokeStyle = active ? "rgba(186, 245, 255, 0.72)" : "rgba(132, 220, 255, 0.14)";
+        ctx.lineWidth = active ? 2.4 : 1;
+        ctx.beginPath();
+        ctx.moveTo(aPos.x, aPos.y + 22);
+        ctx.lineTo(bPos.x, bPos.y - 22);
+        ctx.stroke();
+      }
+    }
+  }
+  ctx.restore();
+}
+
+function drawPuzzleMapNode(node, position) {
+  if (!position) return;
+  const template = getPuzzleTemplate(node.templateId);
+  const hovered = state.hoveredInteractive?.type === "puzzleMapNode" && state.hoveredInteractive.payload.nodeId === node.id;
+  const radius = (node.isBoss ? 31 : 25) * (hovered ? 1.07 : 1);
+  const color = template.theme.accentColor;
+  addInteractiveRect("puzzleMapNode", { x: position.x - radius, y: position.y - radius, w: radius * 2, h: radius * 2 }, { nodeId: node.id }, {
+    title: node.discovered || node.available || node.current ? node.name : "Unknown chamber",
+    body: `${capitalize(node.difficulty)} ${node.archetype}. Track: ${node.trackType}. Slots: ${node.slotsCount}. Mods: ${formatPuzzleModifierList(template)}. ${template.shortPitch}`,
+  });
+  ctx.save();
+  if (node.available || node.current || node.selected || hovered) {
+    ctx.shadowBlur = node.isBoss ? 24 : 16;
+    ctx.shadowColor = color;
+  }
+  ctx.fillStyle = node.current
+    ? rgba(color, 0.44)
+    : node.cleared
+      ? "rgba(186, 245, 255, 0.25)"
+      : node.available || node.selected
+        ? rgba(color, 0.28)
+        : "rgba(8, 18, 28, 0.72)";
+  ctx.strokeStyle = node.selected || node.current ? "#ffffff" : rgba(color, node.available ? 0.72 : 0.32);
+  ctx.lineWidth = node.current || node.selected ? 2.6 : 1.4;
+  ctx.beginPath();
+  ctx.arc(position.x, position.y, radius, 0, TAU);
+  ctx.fill();
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+  drawTrackIcon(ctx, node.trackType, position.x, position.y - 2, node.isBoss ? 16 : 13, color);
+  ctx.fillStyle = node.available || node.current || node.selected || node.cleared ? "#ffffff" : "#93aeb9";
+  ctx.font = "900 9px Inter, system-ui, sans-serif";
+  ctx.textAlign = "center";
+  ctx.fillText(node.isBoss ? "BOSS" : node.archetype.slice(0, 6).toUpperCase(), position.x, position.y + radius + 13);
+  if (node.modifiers.length) {
+    ctx.fillStyle = "#fff37a";
+    for (let i = 0; i < Math.min(3, node.modifiers.length); i += 1) {
+      ctx.beginPath();
+      ctx.arc(position.x + (i - 1) * 7, position.y + radius - 4, 2.2, 0, TAU);
+      ctx.fill();
+    }
+  }
   ctx.restore();
 }
 
@@ -3383,6 +4066,30 @@ function drawCracks(segment, integrity) {
 
 function hasModifier(level, id) {
   return hasLevelModifier(level, id);
+}
+
+function hasPuzzleModifier(level, id) {
+  return Boolean(level?.modifiers?.includes(id));
+}
+
+function getPuzzleModifierLabel(id) {
+  return {
+    energyDrain: "Energy",
+    denseCore: "Dense",
+    armoredCore: "Armor",
+    extraSlots: "Slots",
+    lowIntegrityCost: "Safe",
+    richDraft: "Rich",
+    fragileSwarm: "Fragile",
+    crackedPath: "Crack",
+    lightArmor: "Light Armor",
+  }[id] || id;
+}
+
+function formatPuzzleModifierList(level, compact = false) {
+  const mods = (level?.modifiers || []).map((id) => compact ? getPuzzleModifierLabel(id) : PUZZLE_MODIFIERS[id]?.name || id);
+  if (!mods.length) return "none";
+  return mods.join(compact ? ", " : ", ");
 }
 
 function getModifierVisualFlags(segment, level) {
@@ -4565,12 +5272,21 @@ function formatPuzzleState(puzzleState) {
     roomVictory: "Room Solved",
     rewardChoice: "Reward Choice",
     nextRoomReady: "Next Room Ready",
+    nextPuzzleRoomChoice: "Chamber Choice",
+    nextPuzzleRoomReady: "Next Chamber Ready",
+    puzzleMap: "Puzzle Map",
     runFailed: "Run Collapsed",
     runCleared: "Run Cleared",
   }[puzzleState] || puzzleState;
 }
 
 function getPuzzleHint(report) {
+  const level = state.puzzle?.level;
+  if (hasPuzzleModifier(level, "energyDrain")) return "Use Battery or Booster later in the route.";
+  if (hasPuzzleModifier(level, "armoredCore") || hasPuzzleModifier(level, "lightArmor")) return "Preserve power or use Pierce near core.";
+  if (hasPuzzleModifier(level, "denseCore")) return "Crack or Pierce late glass.";
+  if (hasPuzzleModifier(level, "fragileSwarm")) return "Splits are weaker here; place Battery after splitting.";
+  if (hasPuzzleModifier(level, "crackedPath")) return "Opening is weak; save cards for the finish.";
   if (report.depthReached < 0.35) return "You need early power or energy.";
   if (report.depthReached >= 0.9 && report.coreDamage <= 0) return "Almost there. Put Battery or Booster later, or use Pierce near the end.";
   if (report.ballsSpentOnGlass >= 4 && report.depthReached < 0.6) return "Your swarm is spending itself early. Move Split later or Crack the first dense section.";
@@ -4657,7 +5373,7 @@ function simulatePuzzleBalanceScenario(level, name, slotTypes) {
     const segmentProgress = nextSegment ? Math.max(ball.progress, nextSegment.progressStart) : Infinity;
     const slotProgress = nextSlot ? nextSlot.progress : Infinity;
     const nextProgress = Math.min(slotProgress, segmentProgress, 1);
-    drainDiagnosticMovement(ball, nextProgress);
+    drainDiagnosticMovement(ball, nextProgress, level);
     ball.progress = nextProgress;
     deepest = Math.max(deepest, Math.min(1, ball.progress));
     if (ball.energy <= 0) {
@@ -4666,7 +5382,7 @@ function simulatePuzzleBalanceScenario(level, name, slotTypes) {
     }
     if (nextSlot && slotProgress <= segmentProgress && slotProgress <= 1) {
       ball.triggered.add(nextSlot.id);
-      applyDiagnosticSlot(nextSlot, ball, balls, stats, () => nextOrder++);
+      applyDiagnosticSlot(nextSlot, ball, balls, stats, () => nextOrder++, level);
       continue;
     }
     if (nextSegment && segmentProgress <= 1) {
@@ -4718,13 +5434,14 @@ function createDiagnosticBall(power = PUZZLE_START_POWER, energy = PUZZLE_START_
   };
 }
 
-function drainDiagnosticMovement(ball, nextProgress) {
+function drainDiagnosticMovement(ball, nextProgress, level) {
   const distance = Math.max(0, nextProgress - ball.progress);
   const boosted = ball.speedBoostUntilProgress > ball.progress;
-  ball.energy -= distance * PUZZLE_MOVEMENT_DRAIN * (boosted ? ball.boostDrainMultiplier : 1);
+  const modifierDrain = hasPuzzleModifier(level, "energyDrain") ? 1.15 : 1;
+  ball.energy -= distance * PUZZLE_MOVEMENT_DRAIN * modifierDrain * (boosted ? ball.boostDrainMultiplier : 1);
 }
 
-function applyDiagnosticSlot(slot, ball, balls, stats, nextOrder) {
+function applyDiagnosticSlot(slot, ball, balls, stats, nextOrder, level) {
   const effect = getCardEffectNumbers({ type: slot.type, level: 1 });
   if (slot.type === "booster") {
     ball.energy = Math.min(ball.maxEnergy, ball.energy + effect.energy);
@@ -4737,11 +5454,12 @@ function applyDiagnosticSlot(slot, ball, balls, stats, nextOrder) {
     ball.pierceIgnore = Math.max(ball.pierceIgnore, effect.ignore);
   } else if (slot.type === "split2" || slot.type === "split3") {
     const count = slot.type === "split2" ? 2 : 3;
+    const energyInherit = hasPuzzleModifier(level, "fragileSwarm") ? Math.max(0.5, effect.energy - 0.08) : effect.energy;
     ball.alive = false;
     for (let i = 0; i < count; i += 1) {
       const clone = createDiagnosticBall(
         Math.max(3, ball.power * effect.power),
-        Math.max(8, ball.energy * effect.energy),
+        Math.max(8, ball.energy * energyInherit),
         ball.progress,
         nextOrder(),
       );
