@@ -105,41 +105,49 @@ const LEVEL_MODIFIERS = {
     id: "brittleGlass",
     name: "Brittle Glass",
     shortDescription: "Glass has less HP, but core has more HP.",
+    numericEffect: "Glass HP x0.75, core HP x1.35.",
   },
   denseMiddle: {
     id: "denseMiddle",
     name: "Dense Middle",
     shortDescription: "Middle glass is much tougher.",
+    numericEffect: "Progress 35%-70% glass has +45% HP.",
   },
   armoredCore: {
     id: "armoredCore",
     name: "Armored Core",
     shortDescription: "Core reduces small hits.",
+    numericEffect: "Core armor is 8, or 14 on elite/boss.",
   },
   multiplierRush: {
     id: "multiplierRush",
     name: "Multiplier Rush",
     shortDescription: "More multiplier value, tougher glass.",
+    numericEffect: "x2+ multipliers gain +1 value; glass HP x1.20.",
   },
   fragileBalls: {
     id: "fragileBalls",
     name: "Fragile Balls",
     shortDescription: "Balls lose more power after breaking glass.",
+    numericEffect: "Overflow power after breaks is reduced harder.",
   },
   richChamber: {
     id: "richChamber",
     name: "Rich Chamber",
     shortDescription: "More shards, stronger glass.",
+    numericEffect: "Wave shards x1.35; glass HP x1.25.",
   },
   crackedStart: {
     id: "crackedStart",
     name: "Cracked Start",
     shortDescription: "First quarter is cracked, center is stronger.",
+    numericEffect: "First 25% glass HP x0.50; last 25% HP x1.25.",
   },
   glassRegen: {
     id: "glassRegen",
     name: "Glass Regen",
     shortDescription: "Damaged glass repairs after each wave.",
+    numericEffect: "Unbroken damaged glass restores 10% missing HP.",
   },
 };
 
@@ -421,6 +429,10 @@ const state = {
   selectedNextNodeId: null,
   mapOverlayOpen: false,
   actMap: [],
+  mouse: { x: 0, y: 0 },
+  interactiveRects: [],
+  hoveredInteractive: null,
+  lastHoverSoundAt: 0,
   track: [],
   segments: [],
   multipliers: [],
@@ -485,6 +497,21 @@ function init() {
     if (event.key.toLowerCase() === "m") toggleMute();
   });
 
+  canvas.addEventListener("mousemove", (event) => {
+    state.mouse = getMousePos(event);
+    updateHoverState();
+  });
+  canvas.addEventListener("mouseleave", () => {
+    state.hoveredInteractive = null;
+    canvas.style.cursor = "default";
+  });
+  canvas.addEventListener("click", async (event) => {
+    await audio.unlock();
+    state.mouse = getMousePos(event);
+    updateHoverState();
+    handleCanvasClick(event);
+  });
+
   requestAnimationFrame(tick);
 }
 
@@ -520,6 +547,67 @@ function toggleMapOverlay() {
   }
   state.mapOverlayOpen = !state.mapOverlayOpen;
   audio.play("uiClick");
+}
+
+function getMousePos(event) {
+  const rect = canvas.getBoundingClientRect();
+  return {
+    x: ((event.clientX - rect.left) / rect.width) * WIDTH,
+    y: ((event.clientY - rect.top) / rect.height) * HEIGHT,
+  };
+}
+
+function updateHoverState() {
+  const hovered = [...state.interactiveRects].reverse().find((item) =>
+    pointInRect(state.mouse.x, state.mouse.y, item.rect),
+  );
+  if (hovered?.id !== state.hoveredInteractive?.id) {
+    const now = performance.now();
+    if (hovered && now - state.lastHoverSoundAt > 150) {
+      audio.play("uiClick");
+      state.lastHoverSoundAt = now;
+    }
+  }
+  state.hoveredInteractive = hovered || null;
+  canvas.style.cursor = hovered ? "pointer" : "default";
+}
+
+function handleCanvasClick() {
+  const hovered = state.hoveredInteractive;
+  if (!hovered) return;
+
+  if (hovered.type === "reward" && state.phase === "rewardChoice") {
+    chooseReward(hovered.payload.index);
+    return;
+  }
+  if (hovered.type === "chamber" && state.phase === "nextChamberChoice") {
+    chooseNextChamber(hovered.payload.index);
+    return;
+  }
+  if (hovered.type === "mapNode") {
+    const index = state.nextChoiceNodes.findIndex((node) => node.id === hovered.payload.nodeId);
+    if (state.phase === "nextChamberChoice" && index >= 0) {
+      chooseNextChamber(index);
+    } else {
+      audio.play("denied");
+    }
+  }
+}
+
+function pointInRect(x, y, rect) {
+  return x >= rect.x && x <= rect.x + rect.w && y >= rect.y && y <= rect.y + rect.h;
+}
+
+function addInteractiveRect(type, rect, payload = {}, tooltip = null) {
+  const item = {
+    id: `${type}-${state.interactiveRects.length}`,
+    type,
+    rect,
+    payload,
+    tooltip,
+  };
+  state.interactiveRects.push(item);
+  return item;
 }
 
 function handleNumberKey(index, upgradeType) {
@@ -903,6 +991,7 @@ function createBall(progress, power, speed, laneOffset, color, spreadOffset = 0)
     progress,
     speed,
     power,
+    initialPower: power,
     alive: true,
     radius: 8,
     color,
@@ -1026,7 +1115,11 @@ function handleGlassCollision(ball) {
         state.waveStats.cleanBreakBonus += 5;
         addFloatingText(hitPoint.x, hitPoint.y - 40, "+5 SHARDS", "#fff37a", 0.85);
       }
-      ball.power = Math.max(1, hasLevelModifier(state.level, "fragileBalls") ? overflow / 1.35 : overflow);
+      const nextPower = Math.max(1, hasLevelModifier(state.level, "fragileBalls") ? overflow / 1.35 : overflow);
+      if (hasLevelModifier(state.level, "fragileBalls") && ball.power - nextPower > 4) {
+        burst(hitPoint.x, hitPoint.y, "#fff37a", 8, 120);
+      }
+      ball.power = nextPower;
       ball.speed = Math.min(ball.speed + 0.008, 0.25);
       addFloatingText(hitPoint.x, hitPoint.y - 20, "BREAK", "#ffffff", 0.9);
       burst(hitPoint.x, hitPoint.y, "#ffffff", 30, 235);
@@ -1123,9 +1216,16 @@ function earnShards(stats) {
 
 function applyGlassRegen() {
   if (!hasLevelModifier(state.level, "glassRegen")) return;
+  let shown = 0;
   for (const segment of state.segments) {
     if (segment.broken || segment.hp >= segment.maxHp) continue;
+    const before = segment.hp;
     segment.hp = Math.min(segment.maxHp, segment.hp + (segment.maxHp - segment.hp) * 0.1);
+    if (shown < 4 && segment.hp > before) {
+      const point = getPointAtProgress((segment.progressStart + segment.progressEnd) * 0.5);
+      addFloatingText(point.x, point.y, "+regen", "#80ffd4", 0.7);
+      shown += 1;
+    }
   }
 }
 
@@ -1354,6 +1454,9 @@ function damageCore(amount, ball) {
   ball.alive = false;
 
   const corePoint = getPointAtProgress(1);
+  if (armor > 0) {
+    addFloatingText(corePoint.x, corePoint.y - 58, `ARMOR -${armor}`, "#b9dbe4", 0.85);
+  }
   addFloatingText(corePoint.x, corePoint.y - 38, `CORE -${Math.ceil(appliedDamage)}`, "#ffffff", 1.1);
   burst(corePoint.x, corePoint.y, "#ffffff", 34, 245);
   addScreenShake(4 + appliedDamage * 0.08);
@@ -1418,6 +1521,7 @@ function updateMultipliers(dt) {
 }
 
 function draw() {
+  state.interactiveRects = [];
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, WIDTH, HEIGHT);
 
@@ -1440,6 +1544,8 @@ function draw() {
   drawWinOverlay();
   drawActMapOverlay();
   drawTransitionFade();
+  drawTooltip();
+  updateHoverState();
 }
 
 function drawBackground() {
@@ -1492,6 +1598,9 @@ function drawGlass() {
     const integrity = segment.maxHp === 0 ? 0 : segment.hp / segment.maxHp;
     const centerProgress = (segment.progressStart + segment.progressEnd) * 0.5;
     const density = 0.14 + centerProgress * 0.22;
+    const flags = getModifierVisualFlags(segment, state.level);
+    const glassWidth = flags.brittle ? 25 : flags.dense ? 36 : 31;
+    const glassAlpha = flags.brittle ? density + integrity * 0.22 : density + integrity * 0.34;
 
     if (segment.broken) {
       drawPathRange(segment.progressStart, segment.progressEnd, {
@@ -1502,8 +1611,8 @@ function drawGlass() {
     }
 
     drawPathRange(segment.progressStart, segment.progressEnd, {
-      lineWidth: 31,
-      strokeStyle: rgba(theme.glassTint, density + integrity * 0.34),
+      lineWidth: glassWidth,
+      strokeStyle: rgba(flags.brittle ? "#dff8ff" : theme.glassTint, glassAlpha),
       shadowBlur: 13,
       shadowColor: rgba(theme.glassTint, 0.18 + integrity * 0.32),
     });
@@ -1512,7 +1621,9 @@ function drawGlass() {
       strokeStyle: `rgba(245, 255, 255, ${0.1 + integrity * 0.36})`,
     });
 
-    if (integrity < 0.72) {
+    drawSegmentModifierOverlay(ctx, segment, flags);
+
+    if (integrity < 0.72 || flags.cracked) {
       drawCracks(segment, integrity);
     }
   }
@@ -1543,15 +1654,60 @@ function drawCracks(segment, integrity) {
   ctx.restore();
 }
 
+function hasModifier(level, id) {
+  return hasLevelModifier(level, id);
+}
+
+function getModifierVisualFlags(segment, level) {
+  const mid = (segment.progressStart + segment.progressEnd) * 0.5;
+  const damaged = segment.hp < segment.maxHp && !segment.broken;
+  return {
+    brittle: hasModifier(level, "brittleGlass"),
+    dense: hasModifier(level, "denseMiddle") && mid >= 0.35 && mid <= 0.7,
+    cracked: hasModifier(level, "crackedStart") && mid < 0.25,
+    regen: hasModifier(level, "glassRegen") && damaged,
+    rich: hasModifier(level, "richChamber"),
+  };
+}
+
+function drawSegmentModifierOverlay(context, segment, flags) {
+  const mid = (segment.progressStart + segment.progressEnd) * 0.5;
+  const point = getPointAtProgress(mid);
+  if (flags.dense) {
+    drawPathRange(segment.progressStart, segment.progressEnd, {
+      lineWidth: 5,
+      strokeStyle: "rgba(3, 11, 18, 0.38)",
+    });
+  }
+  if (flags.regen) {
+    const pulse = Math.sin(performance.now() * 0.008 + segment.id) * 0.5 + 0.5;
+    drawPathRange(segment.progressStart, segment.progressEnd, {
+      lineWidth: 39,
+      strokeStyle: `rgba(128, 255, 212, ${0.05 + pulse * 0.05})`,
+    });
+  }
+  if (flags.rich && segment.id % 9 === 0) {
+    context.save();
+    context.fillStyle = "rgba(255, 243, 122, 0.68)";
+    context.shadowBlur = 8;
+    context.shadowColor = "#fff37a";
+    context.beginPath();
+    context.arc(point.x, point.y, 2.2, 0, TAU);
+    context.fill();
+    context.restore();
+  }
+}
+
 function drawMultipliers() {
   for (const multiplier of state.multipliers) {
     const { x, y } = multiplier.point;
     const pulse = Math.sin(performance.now() * 0.006 + multiplier.progress * 20) * 0.5 + 0.5;
     const flash = multiplier.flash;
-    const radius = 17 + pulse * 2.5 + flash * 12;
+    const rush = hasModifier(state.level, "multiplierRush") && multiplier.value >= 2;
+    const radius = 17 + pulse * (rush ? 5 : 2.5) + flash * 12;
 
     ctx.save();
-    ctx.shadowBlur = 22 + pulse * 10 + flash * 34;
+    ctx.shadowBlur = 22 + pulse * (rush ? 20 : 10) + flash * 34;
     ctx.shadowColor = multiplier.value === 1 ? "#80ffd4" : "#fff37a";
     ctx.fillStyle =
       multiplier.value === 1
@@ -1567,6 +1723,17 @@ function drawMultipliers() {
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillText(`x${multiplier.value}`, x, y + 0.5);
+    if (rush) {
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.75)";
+      ctx.lineWidth = 1.4;
+      for (let i = 0; i < 3; i += 1) {
+        const a = performance.now() * 0.006 + i * 2.1;
+        ctx.beginPath();
+        ctx.moveTo(x + Math.cos(a) * (radius + 4), y + Math.sin(a) * (radius + 4));
+        ctx.lineTo(x + Math.cos(a + 0.45) * (radius + 10), y + Math.sin(a + 0.45) * (radius + 10));
+        ctx.stroke();
+      }
+    }
     ctx.restore();
   }
 }
@@ -1629,6 +1796,7 @@ function drawCore() {
   ctx.beginPath();
   ctx.arc(corePoint.x, corePoint.y, 14 + pulse * 2, 0, TAU);
   ctx.fill();
+  drawCoreModifierOverlay(ctx, state.core, state.level);
   ctx.fillStyle = "#baf5ff";
   ctx.font = "800 11px Inter, system-ui, sans-serif";
   ctx.textAlign = "center";
@@ -1637,14 +1805,43 @@ function drawCore() {
   ctx.restore();
 }
 
+function drawCoreModifierOverlay(context, core, level) {
+  const corePoint = getPointAtProgress(1);
+  context.save();
+  if (hasModifier(level, "armoredCore")) {
+    context.strokeStyle = "rgba(255, 255, 255, 0.78)";
+    context.lineWidth = 4;
+    context.shadowBlur = 16;
+    context.shadowColor = "#ffffff";
+    context.beginPath();
+    context.arc(corePoint.x, corePoint.y, 42, 0, TAU);
+    context.stroke();
+    context.shadowBlur = 0;
+    context.strokeStyle = rgba(level.theme.accentColor, 0.45);
+    context.lineWidth = 1.5;
+    context.beginPath();
+    context.arc(corePoint.x, corePoint.y, 50, 0, TAU);
+    context.stroke();
+  }
+  if (hasModifier(level, "brittleGlass")) {
+    context.fillStyle = "rgba(255, 255, 255, 0.12)";
+    context.beginPath();
+    context.arc(corePoint.x, corePoint.y, 56, 0, TAU);
+    context.fill();
+  }
+  context.restore();
+}
+
 function drawBallTrails() {
   for (const ball of state.balls) {
     if (ball.trail.length < 2) continue;
+    const ratio = clamp(ball.power / Math.max(1, ball.initialPower), 0.28, 1);
+    const start = hasModifier(state.level, "fragileBalls") ? Math.max(1, ball.trail.length - Math.ceil(12 * ratio)) : 1;
     ctx.save();
-    ctx.lineWidth = Math.max(2, ball.radius * 0.7);
+    ctx.lineWidth = Math.max(2, ball.radius * 0.7 * ratio);
     ctx.lineCap = "round";
     ctx.strokeStyle = ball.color;
-    for (let i = 1; i < ball.trail.length; i += 1) {
+    for (let i = start; i < ball.trail.length; i += 1) {
       const a = ball.trail[i - 1];
       const b = ball.trail[i];
       ctx.globalAlpha = (i / ball.trail.length) * 0.22;
@@ -1659,9 +1856,11 @@ function drawBallTrails() {
 
 function drawBalls() {
   for (const ball of state.balls) {
+    const ratio = clamp(ball.power / Math.max(1, ball.initialPower), 0.35, 1);
     ctx.save();
     ctx.shadowBlur = 18;
     ctx.shadowColor = ball.color;
+    ctx.globalAlpha = hasModifier(state.level, "fragileBalls") ? 0.65 + ratio * 0.35 : 1;
     ctx.fillStyle = ball.color;
     ctx.beginPath();
     ctx.arc(ball.x, ball.y, ball.radius, 0, TAU);
@@ -1935,7 +2134,9 @@ function getCardRects(panel, count, top, cardH) {
 }
 
 function drawRewardCard(context, reward, rect, index, selected) {
-  context.fillStyle = selected ? rgba(getTheme().accentColor, 0.24) : "rgba(9, 19, 27, 0.88)";
+  const hovered = state.hoveredInteractive?.type === "reward" && state.hoveredInteractive.payload.index === index;
+  addInteractiveRect("reward", rect, { index }, { title: reward.name, body: reward.description });
+  context.fillStyle = selected || hovered ? rgba(getTheme().accentColor, 0.24) : "rgba(9, 19, 27, 0.88)";
   context.strokeStyle = selected ? "#ffffff" : rgba(getTheme().accentColor, 0.34);
   roundRect(rect.x, rect.y, rect.w, rect.h, 8);
   context.fill();
@@ -1954,6 +2155,8 @@ function drawTrackPreview(context, rect, levelTemplate) {
   const level = { ...levelTemplate, turns: levelTemplate.turns };
   const points = generateTrack(level);
   const fitted = fitPointsToRect(points, rect, 10);
+  const rush = hasModifier(level, "multiplierRush");
+  const brittle = hasModifier(level, "brittleGlass");
 
   context.save();
   context.fillStyle = "rgba(1, 7, 11, 0.62)";
@@ -1963,13 +2166,15 @@ function drawTrackPreview(context, rect, levelTemplate) {
   context.lineCap = "round";
   context.lineJoin = "round";
   context.strokeStyle = rgba(level.theme.glassTint, 0.28);
-  context.lineWidth = 7;
+  context.lineWidth = brittle ? 4.6 : 7;
   context.beginPath();
   fitted.forEach((point, index) => {
     if (index === 0) context.moveTo(point.x, point.y);
     else context.lineTo(point.x, point.y);
   });
   context.stroke();
+
+  drawPreviewModifierOverlay(context, rect, level, fitted);
 
   context.strokeStyle = rgba(level.theme.glassTint, 0.92);
   context.lineWidth = 2.4;
@@ -1982,12 +2187,13 @@ function drawTrackPreview(context, rect, levelTemplate) {
 
   for (const multiplier of level.multipliers) {
     const point = fitted[Math.min(fitted.length - 1, Math.max(0, Math.round(multiplier.progress * (fitted.length - 1))))];
-    drawMiniMultiplier(context, point.x, point.y, multiplier.value);
+    const displayValue = rush && multiplier.value >= 2 ? multiplier.value + 1 : multiplier.value;
+    drawMiniMultiplier(context, point.x, point.y, displayValue, rush);
   }
 
   const start = fitted[0];
   const core = fitted[fitted.length - 1];
-  drawMiniStartAndCore(context, start.x, start.y, core.x, core.y);
+  drawMiniStartAndCore(context, start.x, start.y, core.x, core.y, hasModifier(level, "armoredCore"));
   drawTrackIcon(context, level.trackType, rect.x + rect.w - 27, rect.y + 18, 14, level.theme.accentColor);
   context.restore();
 }
@@ -2017,14 +2223,66 @@ function fitPointsToRect(points, rect, padding) {
   }));
 }
 
-function drawMiniMultiplier(context, x, y, value) {
+function drawPreviewModifierOverlay(context, rect, levelTemplate, previewPoints) {
+  context.save();
+  if (hasModifier(levelTemplate, "denseMiddle")) {
+    drawPreviewRange(context, previewPoints, 0.35, 0.7, "rgba(4, 12, 18, 0.75)", 5);
+  }
+  if (hasModifier(levelTemplate, "crackedStart")) {
+    drawPreviewRange(context, previewPoints, 0, 0.25, "rgba(255, 255, 255, 0.55)", 3);
+  }
+  if (hasModifier(levelTemplate, "glassRegen")) {
+    drawPreviewRange(context, previewPoints, 0.1, 0.9, "rgba(128, 255, 212, 0.25)", 9);
+  }
+  if (hasModifier(levelTemplate, "richChamber")) {
+    context.fillStyle = "rgba(255, 243, 122, 0.8)";
+    for (let i = 0; i < 8; i += 1) {
+      const p = previewPoints[Math.floor((i / 8) * (previewPoints.length - 1))];
+      context.beginPath();
+      context.arc(p.x + ((i % 2) * 2 - 1) * 5, p.y, 1.8, 0, TAU);
+      context.fill();
+    }
+  }
+  if (hasModifier(levelTemplate, "fragileBalls")) {
+    context.fillStyle = "rgba(255, 182, 182, 0.9)";
+    context.font = "900 12px Inter, system-ui, sans-serif";
+    context.fillText("!", rect.x + 12, rect.y + 17);
+  }
+  context.restore();
+}
+
+function drawPreviewRange(context, points, start, end, color, width) {
+  const a = Math.floor(start * (points.length - 1));
+  const b = Math.floor(end * (points.length - 1));
+  context.strokeStyle = color;
+  context.lineWidth = width;
+  context.lineCap = "round";
+  context.beginPath();
+  for (let i = a; i <= b; i += 1) {
+    const p = points[i];
+    if (i === a) context.moveTo(p.x, p.y);
+    else context.lineTo(p.x, p.y);
+  }
+  context.stroke();
+}
+
+function drawMiniMultiplier(context, x, y, value, overloaded = false) {
   context.save();
   context.fillStyle = value === 1 ? "#80ffd4" : "#fff37a";
-  context.shadowBlur = 6;
+  context.shadowBlur = 6 + (value > 3 ? 5 : 0) + (overloaded ? 5 : 0);
   context.shadowColor = context.fillStyle;
   context.beginPath();
-  context.arc(x, y, 4.3, 0, TAU);
+  context.arc(x, y, overloaded ? 5.2 : 4.3, 0, TAU);
   context.fill();
+  if (overloaded && value > 1) {
+    context.strokeStyle = "rgba(255, 255, 255, 0.78)";
+    context.lineWidth = 1;
+    context.beginPath();
+    context.moveTo(x - 6, y - 1);
+    context.lineTo(x - 1, y - 5);
+    context.lineTo(x + 4, y - 2);
+    context.stroke();
+  }
   context.shadowBlur = 0;
   context.fillStyle = "#071016";
   context.font = "800 7px Inter, system-ui, sans-serif";
@@ -2034,7 +2292,7 @@ function drawMiniMultiplier(context, x, y, value) {
   context.restore();
 }
 
-function drawMiniStartAndCore(context, startX, startY, coreX, coreY) {
+function drawMiniStartAndCore(context, startX, startY, coreX, coreY, armored = false) {
   context.save();
   context.strokeStyle = "#baf5ff";
   context.lineWidth = 1.6;
@@ -2045,6 +2303,13 @@ function drawMiniStartAndCore(context, startX, startY, coreX, coreY) {
   context.beginPath();
   context.arc(coreX, coreY, 6.2, 0, TAU);
   context.fill();
+  if (armored) {
+    context.strokeStyle = "rgba(255, 255, 255, 0.88)";
+    context.lineWidth = 1.4;
+    context.beginPath();
+    context.arc(coreX, coreY, 9.2, 0, TAU);
+    context.stroke();
+  }
   context.fillStyle = "#071016";
   context.beginPath();
   context.arc(coreX, coreY, 2.7, 0, TAU);
@@ -2065,6 +2330,82 @@ function drawBadge(context, text, x, y, w, h, color) {
   context.fillText(text, x + w / 2, y + h / 2 + 0.5);
 }
 
+function drawModifierBadges(context, level, x, y, maxWidth) {
+  const mods = (level.modifiers || []).map((id) => LEVEL_MODIFIERS[id]).filter(Boolean);
+  if (mods.length === 0) {
+    context.fillStyle = "#93aeb9";
+    context.font = "800 10px Inter, system-ui, sans-serif";
+    context.textAlign = "left";
+    context.fillText("No modifiers", x, y + 13);
+    return;
+  }
+
+  let cursor = x;
+  const shown = mods.slice(0, 3);
+  shown.forEach((modifier) => {
+    const w = Math.min(92, Math.max(54, modifier.name.length * 6 + 16));
+    if (cursor + w > x + maxWidth) return;
+    const rect = { x: cursor, y, w, h: 20 };
+    drawModifierBadge(context, modifier, rect);
+    cursor += w + 7;
+  });
+  if (mods.length > shown.length) {
+    context.fillStyle = "#baf5ff";
+    context.font = "900 10px Inter, system-ui, sans-serif";
+    context.fillText(`+${mods.length - shown.length}`, cursor + 9, y + 13);
+  }
+}
+
+function drawModifierBadge(context, modifier, rect) {
+  context.fillStyle = "rgba(12, 29, 38, 0.92)";
+  context.strokeStyle = "rgba(186, 245, 255, 0.34)";
+  roundRect(rect.x, rect.y, rect.w, rect.h, 6);
+  context.fill();
+  context.stroke();
+  context.fillStyle = "#dffbff";
+  context.font = "900 9px Inter, system-ui, sans-serif";
+  context.textAlign = "center";
+  context.textBaseline = "middle";
+  context.fillText(shortModifierName(modifier.name), rect.x + rect.w / 2, rect.y + rect.h / 2 + 0.5);
+  addInteractiveRect("modifierBadge", rect, { id: modifier.id }, {
+    title: modifier.name,
+    body: `${modifier.shortDescription} ${modifier.numericEffect || ""}`,
+  });
+}
+
+function shortModifierName(name) {
+  return name
+    .replace("Multiplier", "Multi")
+    .replace("Chamber", "")
+    .replace("Glass", "")
+    .trim();
+}
+
+function drawRiskRewardBars(context, x, y, level) {
+  context.font = "900 10px Inter, system-ui, sans-serif";
+  context.textAlign = "left";
+  context.fillStyle = "#ffb8b8";
+  context.fillText(`Risk ${scoreDots(getRiskScore(level))}`, x, y);
+  context.fillStyle = "#fff37a";
+  context.fillText(`Reward ${scoreDots(getRewardScore(level))}`, x + 96, y);
+}
+
+function scoreDots(score) {
+  return `${"●".repeat(score)}${"○".repeat(5 - score)}`;
+}
+
+function getRiskScore(level) {
+  const base = { safe: 1, normal: 2, risky: 3, elite: 4, boss: 5 }[level.difficulty] || 2;
+  const extra = ["glassRegen", "armoredCore", "fragileBalls"].filter((id) => hasModifier(level, id)).length;
+  return clamp(Math.round(base + extra), 1, 5);
+}
+
+function getRewardScore(level) {
+  const base = { safe: 1, normal: 2, risky: 3, elite: 4, boss: 5 }[level.difficulty] || 2;
+  const extra = ["richChamber", "multiplierRush"].filter((id) => hasModifier(level, id)).length;
+  return clamp(Math.round(base + extra), 1, 5);
+}
+
 function getDifficultyColor(difficulty) {
   return {
     safe: "#9fffd5",
@@ -2077,7 +2418,12 @@ function getDifficultyColor(difficulty) {
 
 function drawChamberCard(context, level, rect, index, selected) {
   const difficulty = DIFFICULTY[level.difficulty];
-  context.fillStyle = selected ? rgba(level.theme.accentColor, 0.24) : "rgba(9, 19, 27, 0.88)";
+  const hovered = state.hoveredInteractive?.type === "chamber" && state.hoveredInteractive.payload.index === index;
+  addInteractiveRect("chamber", rect, { index }, {
+    title: level.name,
+    body: `${DIFFICULTY[level.difficulty].label} ${level.archetype}. ${level.shortPitch}`,
+  });
+  context.fillStyle = selected || hovered ? rgba(level.theme.accentColor, 0.24) : "rgba(9, 19, 27, 0.88)";
   context.strokeStyle = selected ? "#ffffff" : rgba(level.theme.accentColor, 0.36);
   roundRect(rect.x, rect.y, rect.w, rect.h, 8);
   context.fill();
@@ -2104,16 +2450,17 @@ function drawChamberCard(context, level, rect, index, selected) {
 
   context.fillStyle = "#b9dbe4";
   context.font = "700 11px Inter, system-ui, sans-serif";
-  const mods = getModifierNames(level).join(", ") || "None";
   const reward = Math.round((difficulty.shardMultiplier - 1) * 100);
+  drawRiskRewardBars(context, rect.x + 14, previewRect.y + previewRect.h + 35, level);
+  drawModifierBadges(context, level, rect.x + 14, previewRect.y + previewRect.h + 55, rect.w - 28);
   wrapText(
     context,
-    `${level.shortPitch}. Track: ${level.trackType}. Mods: ${mods}. Reward: ${reward >= 0 ? "+" : ""}${reward}% shards.`,
+    `${level.shortPitch}. Track: ${level.trackType}. Reward: ${reward >= 0 ? "+" : ""}${reward}% shards.`,
     rect.x + 14,
-    previewRect.y + previewRect.h + 36,
+    previewRect.y + previewRect.h + 78,
     rect.w - 28,
     14,
-    4,
+    3,
   );
 }
 
@@ -2122,6 +2469,55 @@ function drawTransitionFade() {
   ctx.save();
   ctx.fillStyle = `rgba(2, 5, 9, ${state.transitionFade * 0.76})`;
   ctx.fillRect(0, 0, WIDTH, HEIGHT);
+  ctx.restore();
+}
+
+function drawTooltip() {
+  const tooltip = state.hoveredInteractive?.tooltip;
+  if (!tooltip) return;
+
+  const maxWidth = 270;
+  const pad = 12;
+  const title = tooltip.title || "";
+  const body = tooltip.body || "";
+
+  ctx.save();
+  ctx.font = "700 12px Inter, system-ui, sans-serif";
+  const bodyLines = getWrappedLines(ctx, body, maxWidth - pad * 2, 5);
+  const titleHeight = title ? 18 : 0;
+  const h = pad * 2 + titleHeight + bodyLines.length * 15;
+  const w = maxWidth;
+  const x = clamp(state.mouse.x + 18, 8, WIDTH - w - 8);
+  const y = clamp(state.mouse.y + 18, 8, HEIGHT - h - 8);
+
+  ctx.shadowBlur = 18;
+  ctx.shadowColor = "rgba(0, 0, 0, 0.55)";
+  ctx.fillStyle = "rgba(4, 13, 20, 0.96)";
+  ctx.strokeStyle = "rgba(186, 245, 255, 0.36)";
+  ctx.lineWidth = 1;
+  roundRect(x, y, w, h, 8);
+  ctx.fill();
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+
+  let textY = y + pad;
+  if (title) {
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "900 13px Inter, system-ui, sans-serif";
+    ctx.textAlign = "left";
+    ctx.textBaseline = "top";
+    ctx.fillText(title, x + pad, textY);
+    textY += titleHeight;
+  }
+
+  ctx.fillStyle = "#b9dbe4";
+  ctx.font = "700 12px Inter, system-ui, sans-serif";
+  ctx.textAlign = "left";
+  ctx.textBaseline = "top";
+  bodyLines.forEach((line) => {
+    ctx.fillText(line, x + pad, textY);
+    textY += 15;
+  });
   ctx.restore();
 }
 
@@ -2196,12 +2592,18 @@ function drawMapConnections(positions) {
 
 function drawMapNode(node, position) {
   if (!position) return;
-  const radius = node.isBoss ? 26 : 21;
+  const hovered = state.hoveredInteractive?.type === "mapNode" && state.hoveredInteractive.payload.nodeId === node.id;
+  const pulse = node.current ? Math.sin(performance.now() * 0.006) * 2.5 : 0;
+  const radius = (node.isBoss ? 26 : 21) * (hovered ? 1.08 : 1) + pulse;
   const color = node.template?.theme?.accentColor || getTheme().accentColor;
   const alpha = node.discovered ? 0.95 : 0.28;
 
   ctx.save();
   ctx.globalAlpha = alpha;
+  if (node.available || node.current || node.selected || hovered) {
+    ctx.shadowBlur = node.selected || node.current ? 22 : 15;
+    ctx.shadowColor = rgba(color, hovered ? 0.95 : 0.62);
+  }
   ctx.fillStyle = node.selected
     ? rgba(color, 0.42)
     : node.available
@@ -2217,6 +2619,7 @@ function drawMapNode(node, position) {
   ctx.arc(position.x, position.y, radius, 0, TAU);
   ctx.fill();
   ctx.stroke();
+  ctx.shadowBlur = 0;
 
   if (node.template) {
     drawTrackIcon(ctx, node.trackType, position.x, position.y, 12, color);
@@ -2236,6 +2639,20 @@ function drawMapNode(node, position) {
   ctx.fillText(node.archetype || "?", position.x, position.y + radius + 7);
   ctx.font = "700 9px Inter, system-ui, sans-serif";
   ctx.fillText(node.difficulty, position.x, position.y + radius + 20);
+  if (node.template?.modifiers?.length) {
+    ctx.fillStyle = "#fff37a";
+    node.template.modifiers.slice(0, 3).forEach((_, index) => {
+      ctx.beginPath();
+      ctx.arc(position.x - 8 + index * 8, position.y - radius - 8, 2.2, 0, TAU);
+      ctx.fill();
+    });
+  }
+  addInteractiveRect("mapNode", { x: position.x - radius, y: position.y - radius, w: radius * 2, h: radius * 2 }, { nodeId: node.id }, {
+    title: node.template?.name || "Unknown chamber",
+    body: node.template
+      ? `${DIFFICULTY[node.difficulty]?.label || node.difficulty} ${node.archetype}. Track: ${node.trackType}. Mods: ${getModifierNames(node.template).join(", ") || "None"}`
+      : `${node.difficulty} future chamber`,
+  });
   ctx.restore();
 }
 
@@ -2543,29 +2960,33 @@ function roundRect(x, y, w, h, radius) {
 }
 
 function wrapText(context, text, x, y, maxWidth, lineHeight, maxLines = 99) {
-  const words = text.split(" ");
-  let line = "";
   let lineY = y;
-  let lines = 0;
+  const lines = getWrappedLines(context, text, maxWidth, maxLines);
+  for (const line of lines) {
+    context.textAlign = "left";
+    context.fillText(line, x, lineY);
+    lineY += lineHeight;
+  }
+}
+
+function getWrappedLines(context, text, maxWidth, maxLines = 99) {
+  const words = String(text).split(" ");
+  const lines = [];
+  let line = "";
 
   for (const word of words) {
     const test = line ? `${line} ${word}` : word;
     if (context.measureText(test).width > maxWidth && line) {
-      context.textAlign = "left";
-      context.fillText(lines + 1 >= maxLines ? `${line}...` : line, x, lineY);
-      lines += 1;
-      if (lines >= maxLines) return;
+      lines.push(lines.length + 1 >= maxLines ? `${line}...` : line);
+      if (lines.length >= maxLines) return lines;
       line = word;
-      lineY += lineHeight;
     } else {
       line = test;
     }
   }
 
-  if (line) {
-    context.textAlign = "left";
-    context.fillText(line, x, lineY);
-  }
+  if (line && lines.length < maxLines) lines.push(line);
+  return lines;
 }
 
 function rgba(hex, alpha) {
