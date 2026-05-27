@@ -187,8 +187,8 @@ const PUZZLE_ROOMS = [
     segments: 68,
     coreHp: 118,
     coreArmor: 0,
-    hpCurve: { start: 8, end: 50, exponent: 1.58 },
-    glassHpScale: 0.28,
+    hpCurve: { start: 8, end: 48, exponent: 1.58 },
+    glassHpScale: 0.23,
     theme: { accentColor: "#84f0ff", glassTint: "#a7efff", backgroundGridStrength: 0.2 },
   },
   {
@@ -201,8 +201,8 @@ const PUZZLE_ROOMS = [
     segments: 74,
     coreHp: 155,
     coreArmor: 0,
-    hpCurve: { start: 9, end: 60, exponent: 1.66 },
-    glassHpScale: 0.29,
+    hpCurve: { start: 10, end: 58, exponent: 1.66 },
+    glassHpScale: 0.25,
     theme: { accentColor: "#fff37a", glassTint: "#b7f7ff", backgroundGridStrength: 0.22 },
   },
   {
@@ -214,8 +214,8 @@ const PUZZLE_ROOMS = [
     segments: 78,
     coreHp: 190,
     coreArmor: 6,
-    hpCurve: { start: 10, end: 68, exponent: 1.68, midBoost: 6 },
-    glassHpScale: 0.3,
+    hpCurve: { start: 13, end: 62, exponent: 1.68, midBoost: 5 },
+    glassHpScale: 0.27,
     theme: { accentColor: "#cdb8ff", glassTint: "#d7f4ff", backgroundGridStrength: 0.25 },
   },
 ];
@@ -273,6 +273,10 @@ const PUZZLE_CARD_DEFINITIONS = [
 
 const PUZZLE_CARDS = PUZZLE_CARD_DEFINITIONS;
 const PUZZLE_TOTAL_ROOMS = PUZZLE_ROOMS.length;
+const PUZZLE_START_ENERGY = 110;
+const PUZZLE_START_POWER = 30;
+const PUZZLE_START_SPEED = 0.17;
+const PUZZLE_MOVEMENT_DRAIN = 62;
 
 const TUTORIAL_LEVEL = {
   id: "glassSpiral",
@@ -696,6 +700,10 @@ function handlePuzzleKeyDown(event) {
     return;
   }
   if (event.key.toLowerCase() === "a") startArcadeRun({ newRun: false });
+  if (event.key.toLowerCase() === "b" && ["planning", "attemptComplete"].includes(state.puzzle?.puzzleState)) {
+    runPuzzleBalanceDiagnostics();
+    return;
+  }
   if (event.code === "Space") {
     event.preventDefault();
     if (state.puzzle?.puzzleState === "planning" || state.puzzle?.puzzleState === "attemptComplete") {
@@ -918,8 +926,8 @@ function getCardEffectNumbers(card) {
       { energy: 50, speed: 1.35, drain: 0.65, duration: 0.2 },
     ],
     battery: [null, { energy: 55, cap: 140 }, { energy: 70, cap: 155 }, { energy: 85, cap: 170 }],
-    split2: [null, { energy: 0.75, power: 0.9 }, { energy: 0.82, power: 0.95 }, { energy: 0.88, power: 1 }],
-    split3: [null, { energy: 0.55, power: 0.78 }, { energy: 0.62, power: 0.84 }, { energy: 0.68, power: 0.9 }],
+    split2: [null, { energy: 0.82, power: 0.92 }, { energy: 0.88, power: 0.96 }, { energy: 0.92, power: 1 }],
+    split3: [null, { energy: 0.64, power: 0.82 }, { energy: 0.7, power: 0.88 }, { energy: 0.76, power: 0.92 }],
     pierce: [null, { ignore: 0.65 }, { ignore: 0.75 }, { ignore: 0.82 }],
     crack: [null, { radius: 0.065, reduction: 0.35 }, { radius: 0.075, reduction: 0.45 }, { radius: 0.085, reduction: 0.55 }],
   };
@@ -1034,8 +1042,7 @@ function startPuzzleAttempt() {
     segment.hitThisAttempt = false;
   });
   applyPuzzlePrelaunchCards();
-  const placedCount = puzzle.slots.filter((slot) => slot.placedCardId).length;
-  puzzle.balls = [createPuzzleBall(0, placedCount === 0 ? 60 : 100, placedCount === 0 ? 24 : 34, 0, "#eaffff")];
+  puzzle.balls = [createPuzzleBall(0, PUZZLE_START_ENERGY, PUZZLE_START_POWER, 0, "#eaffff", PUZZLE_START_ENERGY)];
   audio.play("launch");
 }
 
@@ -1057,7 +1064,7 @@ function applyPuzzlePrelaunchCards() {
   }
 }
 
-function createPuzzleBall(progress, energy, power, laneOffset, color) {
+function createPuzzleBall(progress, energy, power, laneOffset, color, maxEnergy = PUZZLE_START_ENERGY) {
   const id = state.puzzle.nextBallId;
   state.puzzle.nextBallId += 1;
   const ball = {
@@ -1066,12 +1073,12 @@ function createPuzzleBall(progress, energy, power, laneOffset, color) {
     progress,
     previousProgress: progress,
     targetProgress: progress,
-    baseSpeed: 0.17,
-    speed: 0.17,
+    baseSpeed: PUZZLE_START_SPEED,
+    speed: PUZZLE_START_SPEED,
     power,
     initialPower: power,
     energy,
-    maxEnergy: 100,
+    maxEnergy,
     alive: true,
     radius: 8,
     impactCooldown: 0,
@@ -1146,7 +1153,7 @@ function updatePuzzleBallMovement(ball, dt) {
   const deltaProgress = ball.baseSpeed * speedMultiplier * dt;
   ball.progress = Math.min(1.04, ball.progress + deltaProgress);
   ball.targetProgress = ball.progress;
-  ball.energy -= deltaProgress * 95 * drainMultiplier;
+  ball.energy -= deltaProgress * PUZZLE_MOVEMENT_DRAIN * drainMultiplier;
   ball.spreadOffset *= Math.max(0, 1 - dt * 3);
   ball.impactCooldown = Math.max(0, ball.impactCooldown - dt);
   puzzle.report.depthReached = Math.max(puzzle.report.depthReached, Math.min(1, ball.progress));
@@ -1232,6 +1239,7 @@ function triggerPuzzleCard(ball, slot, card, spawned) {
         Math.max(3, ball.power * effect.power),
         clamp(ball.laneOffset + offsets[i], -MAX_LANE_OFFSET, MAX_LANE_OFFSET),
         pickBallColor(count, i),
+        ball.maxEnergy,
       );
       clone.triggeredSlotIds = new Set(ball.triggeredSlotIds);
       clone.pierceCharges = ball.pierceCharges;
@@ -1259,10 +1267,11 @@ function resolvePuzzleBallVsSegment(ball, segment) {
   const puzzle = state.puzzle;
   const impactProgress = clamp(Math.max(segment.progressStart, ball.previousProgress), 0, 1);
   const hitPoint = getPuzzleTrackPoint(impactProgress);
+  const oldPower = ball.power;
   const pierce = ball.pierceCharges > 0;
   const ignore = pierce ? clamp(ball.pierceIgnore || 0.65, 0, 0.92) : 0;
   const effectiveHp = segment.hp * (1 - ignore);
-  const damageAvailable = Math.max(0, ball.power);
+  const damageAvailable = Math.max(0, oldPower * getEnergyDamageFactor(ball));
   const targetProgress = ball.targetProgress;
   puzzle.report.glassHits += 1;
 
@@ -1276,17 +1285,15 @@ function resolvePuzzleBallVsSegment(ball, segment) {
   }
 
   if (damageAvailable < effectiveHp) {
-    const actualDamage = ignore > 0 ? damageAvailable / Math.max(0.01, 1 - ignore) : damageAvailable;
-    segment.hp = Math.max(0, segment.hp - actualDamage);
-    puzzle.report.glassDamage += actualDamage;
+    segment.hp = Math.max(0, segment.hp - damageAvailable);
+    puzzle.report.glassDamage += damageAvailable;
     if (!segment.hitThisAttempt) {
       segment.hitThisAttempt = true;
       puzzle.report.glassCracks += 1;
     }
     puzzle.report.ballsSpentOnGlass += 1;
-    ball.energy -= 4 + damageAvailable * 0.08;
     ball.alive = false;
-    queuePuzzleImpact(hitPoint, { type: "spent", text: `-${Math.ceil(actualDamage)} SPENT`, color: "#ffb6b6", strength: 0.75 });
+    queuePuzzleImpact(hitPoint, { type: "spent", text: `-${Math.ceil(damageAvailable)} SPENT`, color: "#ffb6b6", strength: 0.75 });
     burst(hitPoint.x, hitPoint.y, "#ffb6b6", 10, 120);
     audio.play("hit");
     return;
@@ -1299,9 +1306,9 @@ function resolvePuzzleBallVsSegment(ball, segment) {
   puzzle.report.glassDamage += oldHp;
   puzzle.report.glassBreaks += 1;
   puzzleIncrementBroken(segment);
-  const overkill = Math.max(0, damageAvailable - effectiveHp);
-  ball.power = Math.max(overkill * 0.75, damageAvailable * 0.18);
-  ball.energy -= 5 + effectiveHp * 0.1;
+  const wearRatio = getPuzzleBreakWearRatio(oldPower, effectiveHp, pierce, puzzle.level);
+  ball.power = Math.max(oldPower * (1 - wearRatio), 1);
+  ball.energy -= 1.5 + effectiveHp * 0.04;
   queuePuzzleImpact(hitPoint, { type: "break", text: "BREAK", color: "#baf5ff", strength: 1.05 });
   burst(hitPoint.x, hitPoint.y, "#baf5ff", segment.crackWeak ? 28 : 18, 180);
   audio.play("break");
@@ -1315,6 +1322,19 @@ function resolvePuzzleBallVsSegment(ball, segment) {
 function processPuzzleBallAfterBreak(ball, segment) {
   ball.previousProgress = Math.min(ball.progress, segment.progressEnd + 0.0006);
   ball.trail = ball.trail.slice(-4);
+}
+
+function getEnergyDamageFactor(ball) {
+  const energyRatio = clamp(ball.energy / Math.max(1, ball.maxEnergy), 0, 1);
+  return 0.9 + energyRatio * 0.2;
+}
+
+function getPuzzleBreakWearRatio(oldPower, effectiveHp, usedPierce, level = state.puzzle?.level) {
+  const hpPressure = effectiveHp / Math.max(oldPower, 1);
+  let wearRatio = clamp(0.035 + hpPressure * 0.12, 0.04, 0.18);
+  if (usedPierce) wearRatio *= 0.75;
+  if (hasLevelModifier(level, "fragileBalls")) wearRatio *= 1.2;
+  return clamp(wearRatio, 0.04, 0.22);
 }
 
 function puzzleIncrementBroken(segment) {
@@ -1331,7 +1351,7 @@ function resolvePuzzleBallVsCore(ball) {
     return;
   }
   const energyRatio = clamp(ball.energy / Math.max(1, ball.maxEnergy), 0, 1);
-  const rawDamage = ball.power * (0.65 + energyRatio * 0.7);
+  const rawDamage = ball.power * (0.7 + energyRatio * 0.65);
   let damage = rawDamage;
   const corePoint = getPuzzleTrackPoint(1);
   if (puzzle.core.armor > 0) {
@@ -3022,7 +3042,7 @@ function drawPuzzleHud() {
   }
   ctx.fillStyle = "#baf5ff";
   ctx.font = "800 11px Inter, system-ui, sans-serif";
-  wrapText(ctx, "Swarm rule: balls hit one by one. Failed breakers are spent. SPACE launch. C clear. ESC menu.", panel.x + 16, panel.y + panel.h - 58, panel.w - 32, 14, 4);
+  wrapText(ctx, "Swarm rule: balls hit one by one. Failed breakers are spent. B balance log. SPACE launch. C clear. ESC menu.", panel.x + 16, panel.y + panel.h - 58, panel.w - 32, 14, 4);
   ctx.restore();
 }
 
@@ -3096,11 +3116,9 @@ function drawPuzzleAttemptReport() {
   const rows = [
     ["Depth reached", formatPercent(report.depthReached)],
     ["Best depth", formatPercent(puzzle.bestDepth)],
-    ["Balls spawned", report.ballsSpawned],
     ["Balls spent", report.ballsSpentOnGlass],
     ["Glass hits", report.glassHits],
-    ["Segments cracked", report.glassCracks],
-    ["Segments broken", report.glassBreaks],
+    ["Glass broken this attempt", report.glassBreaks],
     ["Total broken glass", `${getPuzzleBrokenGlassCount()} / ${puzzle.segments.length}`],
     ["Core hits", report.coreHits],
     ["Core damage", Math.ceil(report.coreDamage)],
@@ -3122,7 +3140,7 @@ function drawPuzzleAttemptReport() {
   }
   ctx.fillStyle = "#fff37a";
   ctx.font = "800 12px Inter, system-ui, sans-serif";
-  wrapText(ctx, `${getPuzzleHint(report)} Damage persists. Each ball is spent separately.`, panel.x + 18, panel.y + panel.h - 62, panel.w - 36, 15, 4);
+  wrapText(ctx, `${getPuzzleHint(report)} Hits are sequential: each ball weakens the next wall for following balls.`, panel.x + 18, panel.y + panel.h - 62, panel.w - 36, 15, 4);
   ctx.restore();
 }
 
@@ -4554,12 +4572,208 @@ function formatPuzzleState(puzzleState) {
 
 function getPuzzleHint(report) {
   if (report.depthReached < 0.35) return "You need early power or energy.";
+  if (report.depthReached >= 0.9 && report.coreDamage <= 0) return "Almost there. Put Battery or Booster later, or use Pierce near the end.";
+  if (report.ballsSpentOnGlass >= 4 && report.depthReached < 0.6) return "Your swarm is spending itself early. Move Split later or Crack the first dense section.";
   const splitTriggers = Object.entries(report.cardsTriggered || {}).filter(([key]) => key.startsWith("x2") || key.startsWith("x3")).reduce((sum, [, value]) => sum + value, 0);
   if (splitTriggers > 0 && report.depthReached < 0.75) {
     return "Splits reduce energy. Add Battery or Booster after splitting.";
   }
   if (report.depthReached >= 1 && report.coreDamage > 0) return "Try Pierce or conserve energy before core.";
   return "Adjust cards and press SPACE to retry.";
+}
+
+function runPuzzleBalanceDiagnostics() {
+  const puzzle = state.puzzle;
+  if (!puzzle) return;
+  const level = puzzle.level;
+  const freshSegments = generateGlassSegments(level);
+  const hps = freshSegments.map((segment) => segment.maxHp);
+  const sampleAt = (progress) => hps[Math.min(hps.length - 1, Math.floor(progress * hps.length))];
+  const quarterAverage = (start, end) => {
+    const slice = hps.slice(Math.floor(start * hps.length), Math.max(Math.floor(end * hps.length), Math.floor(start * hps.length) + 1));
+    return Math.round((slice.reduce((sum, hp) => sum + hp, 0) / slice.length) * 10) / 10;
+  };
+  const info = {
+    room: level.name,
+    segments: level.segments,
+    glassMin: Math.min(...hps),
+    glassMax: Math.max(...hps),
+    glassAvg: Math.round((hps.reduce((sum, hp) => sum + hp, 0) / hps.length) * 10) / 10,
+    hp25: sampleAt(0.25),
+    hp50: sampleAt(0.5),
+    hp75: sampleAt(0.75),
+    hp90: sampleAt(0.9),
+    q1Avg: quarterAverage(0, 0.25),
+    q2Avg: quarterAverage(0.25, 0.5),
+    q3Avg: quarterAverage(0.5, 0.75),
+    q4Avg: quarterAverage(0.75, 1),
+    coreHp: level.coreHp,
+    coreArmor: level.coreArmor || 0,
+    startEnergy: PUZZLE_START_ENERGY,
+    startPower: PUZZLE_START_POWER,
+    movementDrain: PUZZLE_MOVEMENT_DRAIN,
+    damageFactor: "0.90 + energyRatio * 0.20",
+    wearFormula: "clamp(0.035 + effectiveHp / power * 0.12, 0.04, 0.18), pierce x0.75",
+  };
+  const scenarios = [
+    simulatePuzzleBalanceScenario(level, "No cards", []),
+    simulatePuzzleBalanceScenario(level, "Recommended", ["booster", "crack", "split2", "battery", "pierce"]),
+    simulatePuzzleBalanceScenario(level, "Bad early x3", ["split3", null, "booster", "battery", "pierce"]),
+  ];
+  console.group(`[Puzzle Balance] ${level.name}`);
+  console.table([info]);
+  console.table(scenarios);
+  console.log("First 10 segment HP:", hps.slice(0, 10).join(", "));
+  console.groupEnd();
+  addFloatingText(CENTER.x, 82, "Balance diagnostics logged", "#fff37a", 0.9);
+}
+
+function simulatePuzzleBalanceScenario(level, name, slotTypes) {
+  const segments = generateGlassSegments(level).map((segment) => ({ ...segment }));
+  const slots = (level.slotProgress || []).map((progress, index) => ({ id: `sim-${index}`, progress, type: slotTypes[index] || null, triggeredBy: new Set() }));
+  for (const slot of slots) {
+    if (slot.type !== "crack") continue;
+    const effect = getCardEffectNumbers({ type: "crack", level: 1 });
+    for (const segment of segments) {
+      const mid = (segment.progressStart + segment.progressEnd) * 0.5;
+      if (Math.abs(mid - slot.progress) > effect.radius) continue;
+      segment.maxHp = Math.max(1, Math.round(segment.maxHp * (1 - effect.reduction)));
+      segment.hp = Math.min(segment.hp, segment.maxHp);
+    }
+  }
+
+  const balls = [createDiagnosticBall()];
+  let nextOrder = 2;
+  let coreHp = level.coreHp;
+  let deepest = 0;
+  const stats = { ballsSpawned: 1, ballsSpent: 0, glassBreaks: 0, glassHits: 0, coreHits: 0, coreDamage: 0 };
+  let guard = 0;
+
+  while (balls.some((ball) => ball.alive) && coreHp > 0 && guard < 800) {
+    guard += 1;
+    const ball = balls.filter((item) => item.alive).sort((a, b) => b.progress - a.progress || a.spawnOrder - b.spawnOrder)[0];
+    const nextSlot = slots.find((slot) => slot.type && !ball.triggered.has(slot.id) && slot.progress >= ball.progress);
+    const nextSegment = segments.find((segment) => !segment.broken && segment.progressEnd >= ball.progress);
+    const segmentProgress = nextSegment ? Math.max(ball.progress, nextSegment.progressStart) : Infinity;
+    const slotProgress = nextSlot ? nextSlot.progress : Infinity;
+    const nextProgress = Math.min(slotProgress, segmentProgress, 1);
+    drainDiagnosticMovement(ball, nextProgress);
+    ball.progress = nextProgress;
+    deepest = Math.max(deepest, Math.min(1, ball.progress));
+    if (ball.energy <= 0) {
+      ball.alive = false;
+      continue;
+    }
+    if (nextSlot && slotProgress <= segmentProgress && slotProgress <= 1) {
+      ball.triggered.add(nextSlot.id);
+      applyDiagnosticSlot(nextSlot, ball, balls, stats, () => nextOrder++);
+      continue;
+    }
+    if (nextSegment && segmentProgress <= 1) {
+      stats.glassHits += 1;
+      const result = resolveDiagnosticGlass(ball, nextSegment, level);
+      if (result === "spent") stats.ballsSpent += 1;
+      if (result === "break") stats.glassBreaks += 1;
+      continue;
+    }
+    if (ball.progress >= 1) {
+      const energyRatio = clamp(ball.energy / Math.max(1, ball.maxEnergy), 0, 1);
+      const rawDamage = ball.power * (0.7 + energyRatio * 0.65);
+      const damage = level.coreArmor > 0 ? Math.max(1, rawDamage - level.coreArmor) : rawDamage;
+      coreHp = Math.max(0, coreHp - damage);
+      stats.coreDamage += damage;
+      stats.coreHits += 1;
+      ball.alive = false;
+    }
+  }
+
+  return {
+    scenario: name,
+    depth: `${Math.round(deepest * 100)}%`,
+    solved: coreHp <= 0 ? "yes" : "no",
+    coreHpLeft: Math.ceil(coreHp),
+    ballsSpawned: stats.ballsSpawned,
+    ballsSpent: stats.ballsSpent,
+    glassHits: stats.glassHits,
+    glassBreaks: stats.glassBreaks,
+    coreHits: stats.coreHits,
+    coreDamage: Math.ceil(stats.coreDamage),
+  };
+}
+
+function createDiagnosticBall(power = PUZZLE_START_POWER, energy = PUZZLE_START_ENERGY, progress = 0, spawnOrder = 1) {
+  return {
+    progress,
+    power,
+    energy,
+    maxEnergy: PUZZLE_START_ENERGY,
+    speedBoostUntilProgress: 0,
+    boostDrainMultiplier: 1,
+    boostSpeedMultiplier: 1,
+    pierceCharges: 0,
+    pierceIgnore: 0,
+    triggered: new Set(),
+    spawnOrder,
+    alive: true,
+  };
+}
+
+function drainDiagnosticMovement(ball, nextProgress) {
+  const distance = Math.max(0, nextProgress - ball.progress);
+  const boosted = ball.speedBoostUntilProgress > ball.progress;
+  ball.energy -= distance * PUZZLE_MOVEMENT_DRAIN * (boosted ? ball.boostDrainMultiplier : 1);
+}
+
+function applyDiagnosticSlot(slot, ball, balls, stats, nextOrder) {
+  const effect = getCardEffectNumbers({ type: slot.type, level: 1 });
+  if (slot.type === "booster") {
+    ball.energy = Math.min(ball.maxEnergy, ball.energy + effect.energy);
+    ball.speedBoostUntilProgress = Math.max(ball.speedBoostUntilProgress, ball.progress + effect.duration);
+    ball.boostDrainMultiplier = effect.drain;
+  } else if (slot.type === "battery") {
+    ball.energy = Math.min(effect.cap, ball.energy + effect.energy);
+  } else if (slot.type === "pierce") {
+    ball.pierceCharges += 1;
+    ball.pierceIgnore = Math.max(ball.pierceIgnore, effect.ignore);
+  } else if (slot.type === "split2" || slot.type === "split3") {
+    const count = slot.type === "split2" ? 2 : 3;
+    ball.alive = false;
+    for (let i = 0; i < count; i += 1) {
+      const clone = createDiagnosticBall(
+        Math.max(3, ball.power * effect.power),
+        Math.max(8, ball.energy * effect.energy),
+        ball.progress,
+        nextOrder(),
+      );
+      clone.triggered = new Set(ball.triggered);
+      clone.pierceCharges = ball.pierceCharges;
+      clone.pierceIgnore = ball.pierceIgnore;
+      clone.speedBoostUntilProgress = ball.speedBoostUntilProgress;
+      clone.boostDrainMultiplier = ball.boostDrainMultiplier;
+      balls.push(clone);
+    }
+    stats.ballsSpawned += count;
+  }
+}
+
+function resolveDiagnosticGlass(ball, segment, level) {
+  const pierce = ball.pierceCharges > 0;
+  const ignore = pierce ? clamp(ball.pierceIgnore || 0.65, 0, 0.92) : 0;
+  const effectiveHp = segment.hp * (1 - ignore);
+  const damageAvailable = ball.power * getEnergyDamageFactor(ball);
+  if (pierce) ball.pierceCharges -= 1;
+  if (damageAvailable < effectiveHp) {
+    segment.hp = Math.max(0, segment.hp - damageAvailable);
+    ball.alive = false;
+    return "spent";
+  }
+  segment.hp = 0;
+  segment.broken = true;
+  ball.power = Math.max(ball.power * (1 - getPuzzleBreakWearRatio(ball.power, effectiveHp, pierce, level)), 1);
+  ball.energy -= 1.5 + effectiveHp * 0.04;
+  ball.progress = Math.min(1, segment.progressEnd + 0.0006);
+  if (ball.energy <= 0) ball.alive = false;
+  return "break";
 }
 
 function capitalize(value) {
